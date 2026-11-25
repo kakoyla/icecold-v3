@@ -25,7 +25,12 @@ function purposeShape(env, err) {
   };
   switch (env.purpose) {
     case 'sign':
-      if (t.length !== 1) err('purpose-shape', 'sign needs exactly one transaction');
+      // DECISIONS A9: plain signing is for Send and AccountSet only (SPEC §5.4).
+      // Key and signer-list changes must come through their own purposes, so
+      // the online side can never choose a new RegularKey or signer.
+      if (t.length !== 1 || !['Payment', 'AccountSet'].includes(t[0])) {
+        err('purpose-shape', 'sign is for one Payment or AccountSet; key changes use rotate, recovery or replace-spare');
+      }
       return { templates: [false] };
     case 'rotate':
       one('SetRegularKey');

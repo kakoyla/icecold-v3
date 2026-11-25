@@ -94,6 +94,23 @@ mirrors this: an estate Payment with no tag needs an explicit acknowledgement.
   specific error. On every open, each stored seed must re-derive its stored
   public key and address.
 
+## A9: what the plain `sign` purpose may contain. Decided by Claude; needs owner review.
+
+`sign` accepts exactly one `Payment` or `AccountSet`, matching the Send and
+AccountSet flows in §5.4. These are refused under `sign`:
+
+| Type | Use this purpose instead |
+|---|---|
+| `SetRegularKey` | `rotate`, `send-rotate`, `recovery`, `migration` |
+| `SignerListSet` | `replace-spare`, `migration` |
+| `AccountDelete` | `migration` |
+
+**Why:** if `sign` allowed them, a compromised online machine could send a
+plain signing request that sets the regular key or the signer list to an
+address it controls. That would bypass §0 principle 1: new keys are generated
+offline. The stricter reading is easy to loosen if the owner prefers.
+**Spec wording proposed** for §5.3.
+
 ## Tooling. Decided by Claude.
 
 - **Build:** esbuild directly, not Vite. One small dependency, deterministic

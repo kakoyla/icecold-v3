@@ -81,6 +81,14 @@ describe('purpose shapes', () => {
     W.envelope('send-rotate', [W.payment({ Sequence: 10 }), { ...srkTemplate(), RegularKey: generateKey().address }]), 'template-filled'));
   test('rotate with a Payment fails', () => bad(W.envelope('rotate', [W.payment()]), 'purpose-shape'));
   test('sign with two transactions fails', () => bad(W.envelope('sign', [W.payment(), W.payment({ Sequence: 11 })]), 'purpose-shape'));
+  test('sign: AccountSet is allowed', () => ok(W.envelope('sign', [W.base(W.personal.address, { TransactionType: 'AccountSet', SetFlag: 8 })])));
+  test('sign: a SetRegularKey chosen by the online side is refused (DECISIONS A9)', () => bad(
+    W.envelope('sign', [{ ...srkTemplate(), RegularKey: generateKey().address }]), 'purpose-shape'));
+  test('sign: a SignerListSet chosen by the online side is refused (DECISIONS A9)', () => bad(
+    W.envelope('sign', [W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 1,
+      SignerEntries: [{ SignerEntry: { Account: generateKey().address, SignerWeight: 1 } }] })]), 'purpose-shape'));
+  test('sign: AccountDelete outside migration is refused (DECISIONS A9)', () => bad(
+    W.envelope('sign', [W.base(W.personal.address, { TransactionType: 'AccountDelete', Destination: W.managed.address, Fee: '200000' })]), 'purpose-shape'));
   test('migration containing a Payment fails', () => bad(W.envelope('migration', [W.payment()]), 'purpose-shape'));
   test('estate that is not multisigned fails', () => bad(
     W.envelope('estate', [W.payment({ DestinationTag: 7 })]), 'signing-pubkey', { vault: null, confirmedNetwork: 'testnet' }));
