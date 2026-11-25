@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="{{CSP}}">
+<meta name="referrer" content="no-referrer">
+<meta name="icecold-code-sha256" content="{{CODE_SHA256}}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICE COLD v3 — Offline Signer</title>
+<style>{{CSS}}</style>
+</head>
+<body>
+<div id="selftest-banner" class="banner fail">Self-test has not run. Signing is disabled.</div>
+<header>
+  <h1>ICE COLD v3 — Offline Signer</h1>
+  <p>Build <b id="version">?</b></p>
+  <p>Application code SHA-256: <code id="code-hash">?</code> (<span id="code-hash-status">?</span>)</p>
+  <p class="note">Check the SHA-256 of this whole file against your paper hash log before opening it.</p>
+</header>
+<main>
+  <h2>Startup self-test</h2>
+  <table id="selftest-results"></table>
+  <p class="note">Phase 1 build: offline core only. Signing screens come in Phase 2.</p>
+</main>
+<script>{{JS}}</script>
+</body>
+</html>
