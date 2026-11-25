@@ -38,3 +38,6 @@ export const TF_FULLY_CANONICAL_SIG = 0x80000000;
 
 // Typed confirmation required to delete a signer list (SPEC §3).
 export const DELETE_SIGNER_LIST_PHRASE = 'DELETE SIGNER LIST';
+
+// Minimum vault passphrase length (DECISIONS: vault passphrase).
+export const MIN_PASSPHRASE_LENGTH = 12;
