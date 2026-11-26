@@ -50,6 +50,8 @@ export class MockLedger {
         if (a.signerList) list.push({ LedgerEntryType: 'SignerList', ...a.signerList });
         return { account_objects: list };
       }
+      case 'subscribe': case 'unsubscribe': return {};
+      case 'server_info': return { info: { validated_ledger: { seq: this.ledgerIndex } } };
       case 'submit': return this.submit(req.tx_blob);
       case 'tx': {
         const t = this.txs.get(req.transaction);

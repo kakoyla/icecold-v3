@@ -1,71 +1,92 @@
 #!/usr/bin/env node
-// One-command build (SPEC §7.3): `npm run build` -> one self-contained HTML
-// with all JS and CSS inline and a CSP that blocks every network request.
+// One-command build (SPEC §7.3): `npm run build` -> two self-contained HTML
+// files with all JS and CSS inline and a strict CSP:
+//   dist/icecold-v3-offline.html  the offline signer: no network at all
+//   dist/icecold-v3-online.html   the Online Builder: only the public XRPL
+//                                 servers in src/online/core/config.js (A21)
 // Deterministic: no timestamps or machine paths go into the output.
+//
+// `node scripts/build.mjs --online-test ws://127.0.0.1:PORT` builds only a
+// test copy of the Online Builder for that local fake ledger, into dist-test/.
 import { build } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BROWSER_TARGET, OUT_FILE } from '../build.config.js';
+import { BROWSER_TARGET, OUT_FILE, ONLINE_TARGET, ONLINE_OUT_FILE, ONLINE_TEST_OUT_FILE } from '../build.config.js';
+import { SERVERS } from '../src/online/core/config.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
-
-const result = await build({
-  absWorkingDir: root,
-  entryPoints: ['src/offline/main.js'],
-  bundle: true,
-  write: false,
-  format: 'iife',
-  platform: 'browser',
-  target: BROWSER_TARGET,
-  charset: 'utf8',
-  minify: false,
-  legalComments: 'inline',
-  sourcemap: false,
-  logLevel: 'warning',
-  define: { __BUILD_VERSION__: JSON.stringify(pkg.version) },
-});
-
-// "</script" inside the bundle would end the inline <script> early.
-const js = result.outputFiles[0].text.replace(/<\/(script)/gi, '<\\/$1');
-const css = readFileSync(resolve(root, 'src/offline/style.css'), 'utf8');
-
 const b64 = (s) => createHash('sha256').update(s, 'utf8').digest('base64');
 const hex = (s) => createHash('sha256').update(s, 'utf8').digest('hex');
 
-// SPEC §4.1: connect-src 'none' and no remote scripts, images or fonts.
-// default-src 'none' covers everything not listed; scripts and styles are
-// allowed only by the exact hash of the inline blocks below.
-const csp = [
-  "default-src 'none'",
-  `script-src 'sha256-${b64(js)}'`,
-  `style-src 'sha256-${b64(css)}'`,
-  "connect-src 'none'",
-  "img-src 'none'",
-  "font-src 'none'",
-  "media-src 'none'",
-  "object-src 'none'",
-  "frame-src 'none'",
-  "worker-src 'none'",
-  "manifest-src 'none'",
-  "form-action 'none'",
-  "base-uri 'none'",
-].join('; ');
+async function buildPage({ entry, template, css, out, target, connect, define = {} }) {
+  const result = await build({
+    absWorkingDir: root,
+    entryPoints: [entry],
+    bundle: true,
+    write: false,
+    format: 'iife',
+    platform: 'browser',
+    target,
+    charset: 'utf8',
+    minify: false,
+    legalComments: 'inline',
+    sourcemap: false,
+    logLevel: 'warning',
+    define: { __BUILD_VERSION__: JSON.stringify(pkg.version), ...define },
+  });
+  // "</script" inside the bundle would end the inline <script> early.
+  const js = result.outputFiles[0].text.replace(/<\/(script)/gi, '<\\/$1');
+  const cssText = readFileSync(resolve(root, css), 'utf8');
+  // SPEC §4.1: default-src 'none'; scripts and styles only by the exact hash
+  // of the inline blocks; connections only where `connect` allows.
+  const csp = [
+    "default-src 'none'",
+    `script-src 'sha256-${b64(js)}'`,
+    `style-src 'sha256-${b64(cssText)}'`,
+    `connect-src ${connect}`,
+    "img-src 'none'",
+    "font-src 'none'",
+    "media-src 'none'",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "worker-src 'none'",
+    "manifest-src 'none'",
+    "form-action 'none'",
+    "base-uri 'none'",
+  ].join('; ');
+  const tpl = readFileSync(resolve(root, template), 'utf8');
+  const fill = { CSP: csp, CSS: cssText, JS: js, CODE_SHA256: hex(js) };
+  // Single pass, function replacer: inserted text is never re-scanned.
+  const html = tpl.replace(/\{\{(CSP|CSS|JS|CODE_SHA256)\}\}/g, (_, k) => fill[k]);
+  const path = resolve(root, out);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, html);
+  const fileHash = createHash('sha256').update(readFileSync(path)).digest('hex');
+  writeFileSync(`${path}.sha256`, `${fileHash}  ${out.split('/').pop()}\n`);
+  console.log(`built ${out} (${html.length} bytes, target ${target.join(',')})`);
+  console.log(`  code sha256: ${hex(js)}`);
+  console.log(`  file sha256: ${fileHash}`);
+  return fileHash;
+}
 
-const template = readFileSync(resolve(root, 'src/offline/index.html'), 'utf8');
-const fill = { CSP: csp, CSS: css, JS: js, CODE_SHA256: hex(js) };
-// Single pass, function replacer: inserted text is never re-scanned or
-// interpreted ($ patterns in the bundle stay literal).
-const html = template.replace(/\{\{(CSP|CSS|JS|CODE_SHA256)\}\}/g, (_, k) => fill[k]);
-
-const out = resolve(root, OUT_FILE);
-mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, html);
-const fileHash = createHash('sha256').update(readFileSync(out)).digest('hex');
-writeFileSync(`${out}.sha256`, `${fileHash}  ${OUT_FILE.split('/').pop()}\n`);
-
-console.log(`built ${OUT_FILE} (${html.length} bytes, target ${BROWSER_TARGET.join(',')})`);
-console.log(`code sha256: ${hex(js)}`);
-console.log(`file sha256: ${fileHash}`);
+const testIdx = process.argv.indexOf('--online-test');
+const offlineHash = await buildPage({
+  entry: 'src/offline/main.js', template: 'src/offline/index.html', css: 'src/offline/style.css',
+  out: OUT_FILE, target: BROWSER_TARGET, connect: "'none'",
+});
+const online = (servers, out) => buildPage({
+  entry: 'src/online/main.js', template: 'src/online/index.html', css: 'src/online/style.css',
+  out, target: ONLINE_TARGET, connect: [...servers.mainnet, ...servers.testnet].join(' '),
+  // A25: the estate letter quotes the offline file's SHA-256.
+  define: { __OFFLINE_SHA256__: JSON.stringify(offlineHash), __TEST_SERVERS__: JSON.stringify(servers === SERVERS ? null : servers) },
+});
+if (testIdx >= 0) {
+  const url = process.argv[testIdx + 1];
+  if (!/^ws:\/\/127\.0\.0\.1:\d+$/.test(url || '')) throw new Error('--online-test needs ws://127.0.0.1:PORT');
+  await online({ mainnet: [url], testnet: [url] }, ONLINE_TEST_OUT_FILE);
+} else {
+  await online(SERVERS, ONLINE_OUT_FILE);
+}

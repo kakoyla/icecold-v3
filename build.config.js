@@ -7,3 +7,10 @@
 export const BROWSER_TARGET = ['firefox140'];
 
 export const OUT_FILE = 'dist/icecold-v3-offline.html';
+
+// Online Builder (SPEC §5): runs on a normal, up-to-date browser (desktop or
+// phone), in the explorer tab or standalone on GitHub Pages.
+export const ONLINE_TARGET = ['chrome110', 'firefox115', 'safari16'];
+export const ONLINE_OUT_FILE = 'dist/icecold-v3-online.html';
+// Test build only: the same page pointed at a local fake ledger. Never published.
+export const ONLINE_TEST_OUT_FILE = 'dist-test/icecold-v3-online-test.html';

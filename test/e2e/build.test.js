@@ -32,3 +32,16 @@ test('the HTML is self-contained: no external script, style, image or font refer
   assert.doesNotMatch(markup, /<img[^>]+src=/i);
   assert.doesNotMatch(html, /\/home\/|\\Users\\|C:\\/, 'no build-machine paths in the output');
 });
+
+test('the Online Builder build is reproducible and self-contained too', async () => {
+  const { ONLINE_OUT_FILE } = await import('../../build.config.js');
+  const p = resolve(root, ONLINE_OUT_FILE);
+  const h = () => createHash('sha256').update(readFileSync(p)).digest('hex');
+  execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: 'pipe' });
+  const first = h();
+  execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: 'pipe' });
+  assert.equal(h(), first);
+  assert.equal(readFileSync(`${p}.sha256`, 'utf8').split(' ')[0], first);
+  const markup = readFileSync(p, 'utf8').replace(/<script>[\s\S]*<\/script>/, '<script></script>');
+  assert.doesNotMatch(markup, /<script[^>]+src=|<link[^>]+href=|<img[^>]+src=/i);
+});
