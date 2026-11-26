@@ -1,6 +1,6 @@
 // The offline signer's screens (SPEC §4). One screen at a time in #screen.
 import { h, replace } from './dom.js';
-import { session, lock, onLock, startIdleLock, wipeStale, markRender } from './session.js';
+import { session, lock, onLock, onWipe, startIdleLock, wipeStale, markRender } from './session.js';
 import { button, note, errorBox, okBox, warnBox, vaultOpener, newPassphrase, saveVault, progress, passphraseStep } from './widgets.js';
 import { scanner } from './qr.js';
 import { Assembler, MultipartError } from '../core/multipart.js';
@@ -21,6 +21,7 @@ let networkEl;
 let signingOk = false;
 // The network a flow is working on, from its envelope; cleared at Home.
 let flowNetwork = null;
+let onHome = false;
 
 /** Header banner: red MAINNET or blue TESTNET (SPEC §4.4 step 4). */
 export function setNetwork(network) {
@@ -35,6 +36,7 @@ function paintNetwork(network) {
 
 /** Show a screen. Every screen change wipes secrets left by the last one. */
 export function show(title, ...content) {
+  onHome = title === 'Home';
   wipeStale();
   paintNetwork(flowNetwork || (session.vault ? session.vault.network : null));
   render(title, content);
@@ -45,6 +47,7 @@ export function show(title, ...content) {
  * banner); Home or Lock still wipe everything.
  */
 export function showStep(title, ...content) {
+  onHome = false;
   render(title, content);
 }
 
@@ -70,7 +73,7 @@ export function home(message) {
         ? h('p', {}, 'Vault open: ', h('strong', { text: v.fileName }), ` (${v.network.toUpperCase()}, ${v.payload.accounts.length} account(s))`)
         : h('p', { text: 'No vault open.' }),
       h('div', { class: 'buttons' },
-        button('Scan an envelope', scanEnvelope, 'primary big'),
+        signingOk ? button('Scan an envelope', scanEnvelope, 'primary big') : null,
         v ? button('Vault: accounts and address book', vaultScreen) : button('Open vault', openVaultScreen),
         v ? null : button('New vault', newVaultScreen))),
     h('div', { class: 'card' },
@@ -117,12 +120,15 @@ function vaultScreen() {
   const v = session.vault;
   if (!v) return openVaultScreen();
   const draft = structuredClone(v.payload);
+  onWipe(() => {
+    for (const a of draft.accounts) for (const k of [a.regularKey, a.pendingKey]) if (k) k.seed = '';
+  });
   const msg = h('div');
   let dirty = false;
   const markDirty = () => { dirty = true; replace(msg, warnBox('Changes are not saved yet. Save a new vault file below.')); };
   const accounts = draft.accounts.map((a) => {
     const label = h('input', { type: 'text', value: a.label });
-    label.addEventListener('input', () => { a.label = label.value.trim() || a.label; markDirty(); });
+    label.addEventListener('input', () => { a.label = label.value.trim(); markDirty(); });
     const book = h('table', { class: 'fields' });
     const renderBook = () => replace(book,
       h('tr', {}, h('th', { text: 'Label' }), h('th', { text: 'Address' }), h('th', { text: 'Exchange' }), h('th', { text: 'Needs tag' }), h('th')),
@@ -159,6 +165,7 @@ function vaultScreen() {
   const savePanel = h('div');
   const saveBtn = button('Save a new vault file', () => {
     if (!dirty) { replace(msg, note('Nothing has changed.')); return; }
+    if (draft.accounts.some((a) => !a.label)) { replace(msg, errorBox('Every account needs a label.')); return; }
     replace(savePanel, savePrompt(draft, 'Vault saved with your changes.'));
   }, 'primary');
   show('Vault', h('p', {}, h('strong', { text: v.fileName }), ` — ${v.network.toUpperCase()}`),
@@ -219,6 +226,7 @@ const FLOWS = {
 const NEEDS_VAULT = new Set(['sign', 'send-rotate', 'rotate', 'replace-spare']);
 
 export function routeEnvelope(env) {
+  if (!signingOk) { home(); return; }
   const flow = env && FLOWS[env.purpose];
   if (!flow) {
     show('Envelope', errorBox(`Unknown envelope purpose ${JSON.stringify(env && env.purpose)}. Nothing was signed.`));
@@ -240,7 +248,9 @@ export function startApp({ allOk, idleWarn }) {
   signingOk = allOk;
   screenEl = document.getElementById('screen');
   networkEl = document.getElementById('network-banner');
-  onLock((reason) => home(reason === 'idle' ? 'Locked after 5 minutes idle. Secrets were wiped.' : 'Vault locked. Secrets were wiped.'));
-  startIdleLock(idleWarn);
+  onLock((reason, hadVault) => home(reason === 'idle'
+    ? 'Locked after 5 minutes idle. Secrets were wiped.'
+    : hadVault ? 'Vault locked. Secrets were wiped.' : 'Done. Secrets were wiped.'));
+  startIdleLock(idleWarn, undefined, () => !!session.vault || !onHome);
   home();
 }

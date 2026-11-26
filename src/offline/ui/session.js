@@ -62,6 +62,7 @@ function clearDomSecrets() {
 
 /** Drop the open vault and wipe. Returns to whatever onLock listeners do. */
 export function lock(reason = 'locked') {
+  const hadVault = !!session.vault;
   wipeAll();
   if (session.vault && session.vault.payload) {
     for (const a of session.vault.payload.accounts) {
@@ -69,7 +70,7 @@ export function lock(reason = 'locked') {
     }
   }
   session.vault = null;
-  for (const l of lockListeners) l(reason);
+  for (const l of lockListeners) l(reason, hadVault);
 }
 
 export function onLock(fn) { lockListeners.push(fn); }
@@ -80,12 +81,14 @@ export function touch() { lastActivity = Date.now(); }
  * Start the idle timer. warn(msLeft|null) is called every second during the
  * last minute (null when activity resets it).
  */
-export function startIdleLock(warn, idleMs = IDLE_LOCK_MS) {
+export function startIdleLock(warn, idleMs = IDLE_LOCK_MS, isActive = () => true) {
   for (const ev of ['keydown', 'mousedown', 'mousemove', 'touchstart', 'wheel']) {
     document.addEventListener(ev, () => { touch(); warn(null); }, { capture: true, passive: true });
   }
   clearInterval(timer);
   timer = setInterval(() => {
+    // Nothing open and nothing on screen to protect: no countdown.
+    if (!isActive()) { touch(); warn(null); return; }
     const left = idleMs - (Date.now() - lastActivity);
     if (left <= 0) {
       warn(null);

@@ -42,6 +42,7 @@ export function scanner(onText, { hint = 'Hold the QR code up to the webcam.' } 
   let stream = null;
   let stopped = false;
   let last = '';
+  let lastAt = 0;
 
   const stop = () => {
     stopped = true;
@@ -60,8 +61,11 @@ export function scanner(onText, { hint = 'Hold the QR code up to the webcam.' } 
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-      if (code && code.data && code.data !== last) {
+      // The same code is read again after a short pause, so holding it up
+      // again after an error works.
+      if (code && code.data && (code.data !== last || Date.now() - lastAt > 1500)) {
         last = code.data;
+        lastAt = Date.now();
         let done = false;
         try { done = onText(code.data, status) === true; } catch (e) { status.textContent = String(e.message || e); }
         if (done) { stop(); return; }

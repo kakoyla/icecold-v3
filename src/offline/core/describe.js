@@ -128,7 +128,7 @@ export function describeTx(tx, ctx = {}) {
   switch (tx.TransactionType) {
     case 'Payment':
       title = 'Send XRP';
-      t('Send '); t(`${typeof tx.Amount === 'string' ? dropsToXrp(tx.Amount) : '?'} XRP`, true);
+      t('Send '); t(`${typeof tx.Amount === 'string' && /^\d+$/.test(tx.Amount) ? dropsToXrp(tx.Amount) : '?'} XRP`, true);
       t(' from '); S.push(...who(tx.Account)); t(' to '); S.push(...who(tx.Destination));
       t(tx.DestinationTag !== undefined ? `, tag ${tx.DestinationTag}` : ', no destination tag');
       firstTimeDestination = !labelOf(tx.Destination);

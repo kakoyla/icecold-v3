@@ -49,6 +49,9 @@ function* oneEditAway(s) {
 export function repairSeed(typed, signerAddresses = []) {
   const s = String(typed).trim();
   if (isValidSeed(s)) return { valid: true, invalid: [], candidates: [] };
+  // Seeds are 29 (secp256k1) or 31 (Ed25519) characters. One edit away from
+  // those means 28-32; anything else cannot be repaired (and would be slow).
+  if (s.length < 28 || s.length > 32) return { valid: false, invalid: invalidPositions(s), candidates: [] };
   const seen = new Set();
   const candidates = [];
   for (const c of oneEditAway(s)) {
