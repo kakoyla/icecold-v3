@@ -41,7 +41,7 @@ pending key is there before the signed pair is shown.
   shows the envelope's network, and the user must confirm it explicitly before
   signing.
 
-## A4: AccountDelete fee cap needs the owner reserve (§4.8). Delegated to Claude.
+## A4: AccountDelete fee cap needs the owner reserve (§4.8). Delegated to Claude; ceiling approved by owner.
 
 The envelope (§5.3) carries a network-wide `ownerReserveDrops` field. The
 AccountDelete cap is `ownerReserveDrops + 1000` drops. **Spec wording
@@ -112,7 +112,7 @@ mirrors this: an estate Payment with no tag needs an explicit acknowledgement.
   specific error. On every open, each stored seed must re-derive its stored
   public key and address.
 
-## A9: what the plain `sign` purpose may contain. Decided by Claude; needs owner review.
+## A9: what the plain `sign` purpose may contain. Approved by owner.
 
 `sign` accepts exactly one `Payment` or `AccountSet`, matching the Send and
 AccountSet flows in §5.4. These are refused under `sign`:
@@ -129,7 +129,7 @@ address it controls. That would bypass §0 principle 1: new keys are generated
 offline. The stricter reading is easy to loosen if the owner prefers.
 **Spec wording proposed** for §5.3.
 
-## A10: order of migration transactions (§4.9). Found in review; spec wording proposed.
+## A10: order of migration transactions (§4.9). Found in review; approved by owner.
 
 §4.9 signs every migration transaction with the shared regular key. When a
 `SetRegularKey` validates, the shared key stops signing for that account. A
@@ -142,6 +142,24 @@ kept account must have:
 This also puts the spare on the ledger before the key changes. A small account
 has exactly one `AccountDelete`. The offline side refuses any other shape.
 **Spec wording proposed** for §4.9 and §4.4.
+
+## A11: deleting a signer list is not possible (§3). Approved by owner.
+
+The spare signer list is the only Recovery and Estate path once the master
+key is disabled. So no purpose can produce a signer-list deletion:
+`replace-spare` and `migration` only accept a quorum-1 template, and `sign`
+refuses `SignerListSet` (A9). The §3 typed-confirmation check stays in
+`safety.js` as a second line of defence. **Spec wording proposed** for §3:
+"Deleting a signer list is not supported."
+
+## A12: longer expiry window for migration (§5.3). Approved by owner.
+
+Migration involves writing spare seeds on paper and typing them back. So the
+`migration` envelope's `LastLedgerSequence` window defaults to about
+**3 hours**. Every other purpose stays at about 1 hour. Both stay
+configurable. The online builder applies this in Phase 3. **Spec wording
+proposed** for §5.3: "defaults to about 1 hour (about 3 hours for
+migration)."
 
 ## Tooling. Decided by Claude.
 
