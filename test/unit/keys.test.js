@@ -59,6 +59,33 @@ describe('keys (after self-test)', () => {
     assert.equal(r.hash, V.MULTISIGN_TX.hash);
   });
 
+  test('verifySignedBlob rejects a blob that is both single- and multi-signed', () => {
+    const { tx } = K.multisignTx(V.MULTISIGN_TX.tx, K.keyFromSeed(V.MULTISIGN_TX.seed));
+    const blob = K.encodeTx({ ...tx, TxnSignature: tx.Signers[0].Signer.TxnSignature });
+    assert.equal(K.verifySignedBlob(blob).valid, false);
+  });
+
+  test('verifySignedBlob rejects duplicate signers', () => {
+    const { tx } = K.multisignTx(V.MULTISIGN_TX.tx, K.keyFromSeed(V.MULTISIGN_TX.seed));
+    const blob = K.encodeTx({ ...tx, Signers: [tx.Signers[0], tx.Signers[0]] });
+    const r = K.verifySignedBlob(blob);
+    assert.equal(r.valid, false);
+    assert.match(r.reason, /duplicate/);
+  });
+
+  test('verifySignedBlob rejects a non-canonical encoding of a valid signed tx', () => {
+    // Swap the first two fields (TransactionType, Flags): same content, wrong order.
+    const b = V.SECP_TX.blob;
+    assert.ok(b.startsWith('1200032280000000'));
+    const swapped = '2280000000' + '120003' + b.slice(16);
+    assert.equal(K.verifySignedBlob(b).valid, true);
+    assert.equal(K.verifySignedBlob(swapped).valid, false);
+  });
+
+  test('verifySignedBlob accepts lower-case hex of a valid blob', () => {
+    assert.equal(K.verifySignedBlob(V.SECP_TX.blob.toLowerCase()).valid, true);
+  });
+
   for (const alg of K.ALGORITHMS) {
     test(`${alg}: multisign output equals xrpl.multisign of xrpl's own signature`, () => {
       const signer = K.generateKey(alg);

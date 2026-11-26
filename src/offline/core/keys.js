@@ -19,7 +19,8 @@ const upper = (b) => bytesToHex(b).toUpperCase();
 /** Algorithm encoded in a family seed. Throws on a bad checksum. */
 export function seedAlgorithm(seed) {
   const { type } = decodeSeed(String(seed).trim());
-  return type === 'ed25519' ? 'ed25519' : 'secp256k1';
+  if (type === 'ed25519' || type === 'secp256k1') return type;
+  throw new Error(`Unsupported seed type: ${type}`);
 }
 
 /** Derive {algorithm, seed, publicKey, privateKey, address} from a seed. */
@@ -118,12 +119,18 @@ export function verifySignedBlob(blobHex) {
   const tx = codec.decode(blobHex);
   const hash = hashSignedBlob(blobHex);
   const fail = (reason) => ({ valid: false, reason, tx, hash, signers: [] });
+  // The blob must be the canonical encoding of what it decodes to, so what
+  // is shown is exactly what was signed.
+  if (codec.encode(tx) !== String(blobHex).toUpperCase()) return fail('blob is not canonically encoded');
 
-  if (Array.isArray(tx.Signers) && tx.Signers.length > 0) {
+  if ('Signers' in tx) {
+    if (!Array.isArray(tx.Signers) || tx.Signers.length === 0) return fail('empty Signers');
+    if ('TxnSignature' in tx) return fail('a tx cannot be both single- and multi-signed');
     if (tx.SigningPubKey !== '') return fail('multisigned tx must have empty SigningPubKey');
     const { Signers, ...unsigned } = tx;
     const signers = [];
     for (const { Signer } of Signers) {
+      if (signers.includes(Signer.Account)) return fail(`duplicate signer ${Signer.Account}`);
       if (keypairs.deriveAddress(Signer.SigningPubKey) !== Signer.Account) {
         return fail(`signer key does not match ${Signer.Account}`);
       }
