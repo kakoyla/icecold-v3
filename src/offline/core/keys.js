@@ -116,7 +116,22 @@ export function multisignTx(tx, signerKey) {
  * Returns { valid, tx, hash, signers } where signers lists signing addresses.
  */
 export function verifySignedBlob(blobHex) {
-  const tx = codec.decode(blobHex);
+  // Pasted or scanned input may be garbage: report it, never throw.
+  let tx;
+  try {
+    if (typeof blobHex !== 'string' || !/^(?:[0-9A-Fa-f]{2})+$/.test(blobHex)) throw new Error('not hex');
+    tx = codec.decode(blobHex);
+  } catch {
+    return { valid: false, reason: 'not a valid transaction blob', tx: null, hash: null, signers: [] };
+  }
+  try {
+    return verifyDecoded(blobHex, tx);
+  } catch {
+    return { valid: false, reason: 'malformed signature fields', tx, hash: null, signers: [] };
+  }
+}
+
+function verifyDecoded(blobHex, tx) {
   const hash = hashSignedBlob(blobHex);
   const fail = (reason) => ({ valid: false, reason, tx, hash, signers: [] });
   // The blob must be the canonical encoding of what it decodes to, so what

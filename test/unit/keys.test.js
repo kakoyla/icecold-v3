@@ -82,6 +82,15 @@ describe('keys (after self-test)', () => {
     assert.equal(K.verifySignedBlob(swapped).valid, false);
   });
 
+  for (const [name, input] of [['non-hex text', 'hello'], ['odd-length hex', 'ABC'],
+    ['truncated blob', V.SECP_TX.blob.slice(0, 40)], ['not a string', 42]]) {
+    test(`verifySignedBlob reports ${name} without throwing`, () => {
+      const r = K.verifySignedBlob(input);
+      assert.equal(r.valid, false);
+      assert.ok(r.reason);
+    });
+  }
+
   test('verifySignedBlob accepts lower-case hex of a valid blob', () => {
     assert.equal(K.verifySignedBlob(V.SECP_TX.blob.toLowerCase()).valid, true);
   });
