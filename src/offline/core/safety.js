@@ -8,7 +8,7 @@
 import { isValidAddress } from './keys.js';
 import {
   SUPPORTED_TX_TYPES, FEE_CAP_SINGLE_DROPS, FEE_CAP_MULTI_DROPS, FEE_CAP_ACCOUNT_DELETE_EXTRA_DROPS,
-  TF_PARTIAL_PAYMENT, TF_FULLY_CANONICAL_SIG, DELETE_SIGNER_LIST_PHRASE,
+  TF_PARTIAL_PAYMENT, TF_FULLY_CANONICAL_SIG, DELETE_SIGNER_LIST_PHRASE, MAX_OWNER_RESERVE_DROPS,
 } from './config.js';
 
 const MAX_DROPS = 100_000_000_000_000_000n; // 100 billion XRP
@@ -40,6 +40,7 @@ const isDrops = (s) => typeof s === 'string' && DROPS_RE.test(s) && BigInt(s) <=
 export function feeCapDrops(tx, { multisigned, ownerReserveDrops }) {
   if (tx.TransactionType === 'AccountDelete') {
     if (ownerReserveDrops === undefined || !isDrops(String(ownerReserveDrops))) return null;
+    if (BigInt(ownerReserveDrops) > MAX_OWNER_RESERVE_DROPS) return null;
     return BigInt(ownerReserveDrops) + FEE_CAP_ACCOUNT_DELETE_EXTRA_DROPS;
   }
   return multisigned ? FEE_CAP_MULTI_DROPS : FEE_CAP_SINGLE_DROPS;
@@ -100,7 +101,7 @@ export function checkTransaction(tx, ctx = {}) {
     err('fee-missing', 'Fee must be a drops string', 'Fee');
   } else {
     const cap = feeCapDrops(tx, ctx);
-    if (cap === null) err('fee-cap-unknown', 'owner reserve missing from envelope; cannot check AccountDelete fee', 'Fee');
+    if (cap === null) err('fee-cap-unknown', 'owner reserve missing or over the ceiling; cannot check AccountDelete fee', 'Fee');
     else if (BigInt(tx.Fee) > cap) err('fee-over-cap', `Fee ${tx.Fee} drops is over the cap of ${cap} drops`, 'Fee');
   }
 

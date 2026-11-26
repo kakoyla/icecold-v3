@@ -17,6 +17,10 @@ export const SUPPORTED_TX_TYPES = Object.freeze([
 export const FEE_CAP_SINGLE_DROPS = 1000n;   // 0.001 XRP
 export const FEE_CAP_MULTI_DROPS = 2000n;    // 0.002 XRP
 export const FEE_CAP_ACCOUNT_DELETE_EXTRA_DROPS = 1000n; // owner reserve + 0.001 XRP
+// DECISIONS A4: the owner reserve comes from the untrusted online side, so it
+// has a hard ceiling here. 2 XRP was the owner reserve before the 2024 cut to
+// 0.2 XRP. An envelope claiming more is refused.
+export const MAX_OWNER_RESERVE_DROPS = 2_000_000n;
 
 // SPEC §4.2 vault KDF. N is stored in each vault file, so the default can be
 // retuned after measuring on the signing machine without breaking old vaults.

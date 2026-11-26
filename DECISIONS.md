@@ -47,6 +47,12 @@ The envelope (§5.3) carries a network-wide `ownerReserveDrops` field. The
 AccountDelete cap is `ownerReserveDrops + 1000` drops. **Spec wording
 proposed** for §5.3.
 
+The online side is untrusted, so the offline side sets a hard ceiling of
+**2 XRP** on `ownerReserveDrops`, in `config.js`. That was the owner reserve
+before the 2024 cut to 0.2 XRP. An envelope claiming more is refused. Found in
+review: without the ceiling, a compromised builder could claim a huge reserve
+and burn the account's balance as the fee.
+
 ## A5: definition of "unknown field" (§4.8). Delegated to Claude.
 
 - Each transaction type has an allowlist of fields.

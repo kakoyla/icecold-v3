@@ -58,6 +58,9 @@ describe('§4.8 fee caps', () => {
   test('AccountDelete: missing owner reserve fails closed', () => failsWith(
     W.base(W.friend.address, { TransactionType: 'AccountDelete', Destination: W.personal.address, Fee: '12' }),
     'fee-cap-unknown', ctx({ ownerReserveDrops: undefined })));
+  test('AccountDelete: an owner reserve over the 2 XRP ceiling fails closed (A4)', () => failsWith(
+    W.base(W.friend.address, { TransactionType: 'AccountDelete', Destination: W.personal.address, Fee: '50000000000' }),
+    'fee-cap-unknown', ctx({ ownerReserveDrops: '50000000000' })));
   test('fee that is not a drops string fails', () => failsWith(W.payment({ Fee: 12 }), 'fee-missing'));
   test('fee in decimal XRP fails', () => failsWith(W.payment({ Fee: '0.00001' }), 'fee-missing'));
 });

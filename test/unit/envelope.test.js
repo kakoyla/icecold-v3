@@ -58,6 +58,9 @@ describe('envelope structure', () => {
     delete e.builtAt;
     bad(e, 'envelope');
   });
+  test('ownerReserveDrops over the 2 XRP ceiling fails (A4)', () => bad(
+    W.envelope('sign', [W.payment()], { ownerReserveDrops: '2000001' }), 'owner-reserve'));
+  test('ownerReserveDrops at the ceiling passes', () => ok(W.envelope('sign', [W.payment()], { ownerReserveDrops: '2000000' })));
   test('empty txs fails', () => bad(W.envelope('sign', []), 'txs'));
   test('unsupported transaction type fails', () => bad(W.envelope('sign', [
     W.base(W.personal.address, { TransactionType: 'OfferCreate' })]), 'unsupported-type'));

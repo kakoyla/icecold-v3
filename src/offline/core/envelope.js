@@ -8,7 +8,7 @@
 //     builtAt: { ledgerIndex, closeTime } } // DECISIONS A6
 import { isValidAddress } from './keys.js';
 import { checkTransaction } from './safety.js';
-import { NETWORKS, PURPOSES, LEDGER_INTERVAL_ESTIMATE_S } from './config.js';
+import { NETWORKS, PURPOSES, LEDGER_INTERVAL_ESTIMATE_S, MAX_OWNER_RESERVE_DROPS } from './config.js';
 
 const ENVELOPE_FIELDS = ['version', 'network', 'purpose', 'txs', 'ledger', 'ownerReserveDrops', 'builtAt'];
 const SNAPSHOT_FIELDS = ['balance', 'reserve', 'regularKey', 'signerList', 'masterDisabled'];
@@ -141,6 +141,8 @@ export function validateEnvelope(env, ctx = {}) {
   if (!env.ledger || typeof env.ledger !== 'object') { err('ledger', 'envelope has no ledger snapshot'); return result(); }
   if (typeof env.ownerReserveDrops !== 'string' || !DROPS_RE.test(env.ownerReserveDrops)) {
     err('envelope', 'ownerReserveDrops must be a drops string');
+  } else if (BigInt(env.ownerReserveDrops) > MAX_OWNER_RESERVE_DROPS) {
+    err('owner-reserve', `ownerReserveDrops ${env.ownerReserveDrops} is over the ceiling of ${MAX_OWNER_RESERVE_DROPS} drops`);
   }
   if (!env.builtAt || !Number.isInteger(env.builtAt.ledgerIndex) || Number.isNaN(Date.parse(env.builtAt.closeTime))) {
     err('envelope', 'builtAt needs ledgerIndex and closeTime');
