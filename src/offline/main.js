@@ -1,10 +1,11 @@
-// Phase 1 page: network lockdown, code self-hash, startup self-test.
-// The signing screens arrive in Phase 2; until then nothing here signs.
+// Offline signer entry point: network lockdown, code self-hash, startup
+// self-test (SPEC §4.1, §4.3, DECISIONS A1), then the screens (SPEC §4).
 import { lockdownNetwork, forbidMathRandom } from './core/lockdown.js';
 import { runSelfTest } from './core/selftest.js';
 import { markSelfTest, signingEnabled } from './core/gate.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { startApp } from './ui/app.js';
 
 // 1. Lock down network APIs and Math.random before anything else runs.
 const lock = lockdownNetwork();
@@ -53,6 +54,15 @@ for (const r of rows) {
     el('td', { class: r.ok ? 'ok' : 'fail' }, r.ok ? 'PASS' : 'FAIL'),
     el('td', {}, r.detail || '')));
 }
+
+// DECISIONS A17: countdown in the last minute before the idle lock.
+const idle = document.getElementById('idle-warning');
+const idleWarn = (msLeft) => {
+  if (msLeft === null) { idle.classList.add('hidden'); return; }
+  idle.classList.remove('hidden');
+  idle.textContent = `Locking in ${Math.ceil(msLeft / 1000)} s. Press any key or move the mouse to stay unlocked.`;
+};
+startApp({ allOk, idleWarn });
 
 // Read-only status for the automated browser test. No functions exposed.
 Object.defineProperty(window, '__icecoldStatus', {

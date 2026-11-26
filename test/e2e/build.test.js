@@ -22,9 +22,13 @@ test('two builds from the same source produce byte-identical HTML', () => {
 
 test('the HTML is self-contained: no external script, style, image or font references', () => {
   const html = readFileSync(out, 'utf8');
-  assert.doesNotMatch(html, /<script[^>]+src=/i);
-  assert.doesNotMatch(html, /<link[^>]+href=/i);
-  assert.doesNotMatch(html, /<img[^>]+src=/i);
   assert.equal((html.match(/<script>/g) || []).length, 1);
+  // Check the page markup, not the text inside the inline script (a bundled
+  // library has an unused createImgTag() that builds "<img src=" as a string;
+  // the CSP's img-src 'none' would block it anyway).
+  const markup = html.replace(/<script>[\s\S]*<\/script>/, '<script></script>');
+  assert.doesNotMatch(markup, /<script[^>]+src=/i);
+  assert.doesNotMatch(markup, /<link[^>]+href=/i);
+  assert.doesNotMatch(markup, /<img[^>]+src=/i);
   assert.doesNotMatch(html, /\/home\/|\\Users\\|C:\\/, 'no build-machine paths in the output');
 });

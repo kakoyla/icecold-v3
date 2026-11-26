@@ -11,17 +11,18 @@
 </head>
 <body>
 <div id="selftest-banner" class="banner fail">Self-test has not run. Signing is disabled.</div>
+<div id="network-banner" class="network-banner none">No network selected</div>
+<div id="idle-warning" class="idle hidden" role="alert"></div>
 <header>
   <h1>ICE COLD v3 — Offline Signer</h1>
-  <p>Build <b id="version">?</b></p>
-  <p>Application code SHA-256: <code id="code-hash">?</code> (<span id="code-hash-status">?</span>)</p>
+  <p class="note">Build <b id="version">?</b> · application code SHA-256 <code id="code-hash">?</code> (<span id="code-hash-status">?</span>)</p>
   <p class="note">Check the SHA-256 of this whole file against your paper hash log before opening it.</p>
 </header>
-<main>
-  <h2>Startup self-test</h2>
+<main id="screen"><p>Starting…</p></main>
+<details id="startup" class="startup">
+  <summary>Startup checks</summary>
   <table id="selftest-results"></table>
-  <p class="note">Phase 1 build: offline core only. Signing screens come in Phase 2.</p>
-</main>
+</details>
 <script>{{JS}}</script>
 </body>
 </html>
