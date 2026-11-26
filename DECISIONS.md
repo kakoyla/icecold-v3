@@ -182,6 +182,12 @@ checksum:
   list is highlighted. The user still picks it and confirms.
 - Seed Repair is a tool of its own, and it also runs inside Recovery, Estate
   Transfer and Migration whenever a typed seed fails.
+- **Not** when typing back a spare that was just written down (Replace Spare,
+  Migration). There, the paper itself must be right. A mistake has to be fixed
+  on the card, so the card can be shown again and must then match exactly.
+  (Phase 2 review.)
+- Input shorter than 28 or longer than 32 characters is not repaired, since
+  one edit can't turn it into a seed.
 
 ## A14: where Recovery puts the new key (§4.6 step 3). Approved by owner.
 

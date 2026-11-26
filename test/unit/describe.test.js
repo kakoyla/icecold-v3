@@ -50,6 +50,10 @@ test('transaction Flags bits are named, unknown bits called out', () => {
   assert.deepEqual(describeFlags('Payment', 0), ['none']);
 });
 
+test('a malformed Amount does not throw (refusal card still renders)', () => {
+  assert.match(text(describeTx(W.payment({ Amount: '1.5' }), ctx)), /Send \? XRP/);
+});
+
 test('AccountDelete, SetRegularKey and SignerListSet summaries', () => {
   assert.match(text(describeTx(W.base(W.personal.address, { TransactionType: 'AccountDelete', Destination: W.managed.address }), ctx)), /^DELETE Personal .* send all its remaining XRP to Managed/);
   assert.match(text(describeTx(W.base(W.personal.address, { TransactionType: 'SetRegularKey' }), ctx)), /filled in offline/);

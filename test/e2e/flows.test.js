@@ -177,6 +177,70 @@ for (const name of ENGINES) {
       assert.equal(await page.textContent('.big-address .big'), `${pending.slice(0, 6)} … ${pending.slice(-6)}`);
     });
 
+    test('send & rotate: a new destination needs the same confirmation as a plain send', async () => {
+      await fresh();
+      const W = makeWorld('testnet');
+      const env = W.envelope('send-rotate', [W.payment({ Sequence: 10, Destination: generateKey().address }), srk(W, W.personal.address, { Sequence: 11 })]);
+      await scanEnvelope(page, env);
+      await openVault(page, await vaultFile(W.vault));
+      await page.waitForSelector('h3:has-text("New destination")');
+      await passphraseAndClick(page, 'Make new key, save vault, sign both');
+      await page.waitForSelector('text=Confirm the new destination first');
+      await page.locator('.first-time label:has-text("character by character") input').check();
+      await captureDownload(page, () => passphraseAndClick(page, 'Make new key, save vault, sign both'));
+      await page.waitForSelector('h3:has-text("Check the saved vault")');
+    });
+
+    test('the same warning on two transactions needs two acknowledgements', async () => {
+      await fresh();
+      const W = makeWorld('testnet');
+      const memo = [{ Memo: { MemoData: '41' } }];
+      const env = W.envelope('send-rotate', [W.payment({ Sequence: 10, Memos: memo }), srk(W, W.personal.address, { Sequence: 11, Memos: memo })]);
+      await scanEnvelope(page, env);
+      await openVault(page, await vaultFile(W.vault));
+      const boxes = page.locator('.acks input[type=checkbox]');
+      assert.equal(await boxes.count(), 2);
+      assert.match(await page.textContent('.acks'), /Transaction 1: .*Transaction 2: /s);
+      await boxes.nth(0).check();
+      await passphraseAndClick(page, 'Make new key, save vault, sign both');
+      await page.waitForSelector('text=Tick or type every item');
+      await boxes.nth(1).check();
+      await captureDownload(page, () => passphraseAndClick(page, 'Make new key, save vault, sign both'));
+      await page.waitForSelector('h3:has-text("Check the saved vault")');
+    });
+
+    test('recovery: an unticked warning stops on the first screen, where its box is', async () => {
+      await fresh();
+      const W = makeWorld('testnet');
+      await scanEnvelope(page, W.envelope('recovery', [srk(W, W.personal.address, { SigningPubKey: '', Fee: '24', Memos: [{ Memo: { MemoData: '41' } }] })]));
+      await clickButton(page, 'TESTNET');
+      await typeSeed(page, W.spare.personal.seed, 'Check spare');
+      await page.waitForSelector('text=Tick or type every item');
+      assert.equal(await page.locator('.acks input[type=checkbox]').count(), 1, 'still on the screen with the box');
+      await page.locator('.acks input[type=checkbox]').check();
+      await typeSeed(page, W.spare.personal.seed, 'Check spare');
+      await page.waitForSelector(`text=Spare confirmed: ${W.spare.personal.address}`);
+    });
+
+    test('migration with only small accounts to close: no vault step, AccountDelete signed', async () => {
+      await fresh();
+      const W = makeWorld('testnet');
+      const shared = generateKey();
+      const small = generateKey();
+      const env = W.envelope('migration', [W.base(small.address, { TransactionType: 'AccountDelete', Destination: W.personal.address, Fee: '200000' })]);
+      env.ledger = { [small.address]: W.snapshot(shared.address, null) };
+      await clickButton(page, 'Open vault');
+      await openVault(page, await vaultFile(W.vault));
+      await page.waitForSelector('text=Vault unlocked');
+      await scanEnvelope(page, env);
+      await typeSeed(page, shared.seed, 'Use this key');
+      await page.waitForSelector('h2:has-text("close small accounts")');
+      await clickButton(page, 'Sign with the shared key');
+      const [blob] = await signedBlobs(page);
+      assert.equal(xrpl.decode(blob).TransactionType, 'AccountDelete');
+      assert.equal(xrplVerifies(blob), true);
+    });
+
     test('next signing promotes the pending key once the ledger shows it', async () => {
       await fresh();
       const W = makeWorld('testnet');
@@ -264,8 +328,13 @@ for (const name of ENGINES) {
       const spareAddr = (await page.textContent('.spare-card strong.mono')).trim();
       await clickButton(page, 'I have written it down');
       assert.equal(await page.locator('.spare-card').count(), 0);
+      // A mistake is not repaired here: the card itself must be right.
       await typeSeed(page, typo(seed), 'Check');
-      await page.waitForSelector('.candidate');
+      await page.waitForSelector('.error-box:has-text("does not pass the checksum")');
+      assert.equal(await page.locator('.candidate').count(), 0);
+      await clickButton(page, 'Show the card again');
+      assert.equal(await readSpareCard(page), seed, 'the same spare is shown again');
+      await clickButton(page, 'I have written it down');
       await typeSeed(page, seed, 'Check');
       await passphraseAndClick(page, 'Sign');
       const [blob] = await signedBlobs(page);

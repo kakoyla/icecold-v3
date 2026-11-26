@@ -55,6 +55,13 @@ test('candidates in the signer list are marked and listed first', () => {
   assert.ok(r.candidates.slice(1).every((c) => !c.inSignerList));
 });
 
+test('input far from a seed length is not repaired (and returns at once)', () => {
+  const t0 = Date.now();
+  const r = repairSeed('s'.repeat(200));
+  assert.deepEqual(r.candidates, []);
+  assert.ok(Date.now() - t0 < 200);
+});
+
 test('every candidate passes its checksum, and repair is fast', () => {
   const t0 = Date.now();
   const r = repairSeed(swapAt(secp.seed, 7, otherChar(secp.seed[7])));
