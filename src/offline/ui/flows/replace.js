@@ -8,7 +8,7 @@ import { session, onWipe } from '../session.js';
 import { generateKey, keyFromSeed, signTx, wipeKey } from '../../core/keys.js';
 import { fillSignerList } from '../../core/envelope.js';
 import {
-  errorBox, okBox, note, txCard, ackPanel, passphraseStep, saveVault, signedOutput, spareCardDisplay, seedEntry, warnBox,
+  button, errorBox, okBox, note, txCard, ackPanel, passphraseStep, saveVault, signedOutput, spareCardDisplay, seedEntry, warnBox,
 } from '../widgets.js';
 import { show, showStep, setNetwork } from '../app.js';
 import {
@@ -17,37 +17,42 @@ import {
 
 /**
  * Show a new spare, then have it typed back from the paper (shared with
- * Migration). onVerified(spareAddress) runs once it matches; the seed itself
- * is wiped from the screen and memory before that.
+ * Migration). onVerified(spareAddress) runs once it matches exactly; the seed
+ * itself is wiped from the screen and memory before that. No Seed Repair
+ * here: a card with a mistake must be fixed on paper, so the card can be
+ * shown again (Gemini Phase 2 review).
  */
 export function spareCeremony({ label, title, before = [], after = [], onVerified }) {
   let spare = generateKey('ed25519');
   onWipe(() => { if (spare) wipeKey(spare); spare = null; });
-  const msg = h('div');
-  const card = spareCardDisplay(spare, {
-    label,
-    onWritten: () => {
-      card.remove();
-      showStep(title, ...before,
-        h('div', { class: 'card' },
-          h('h3', { text: `Type the spare for ${label} back in from the paper` }),
-          note('This proves the card is readable. The screen no longer shows the seed.'),
-          seedEntry((k) => {
-            const ok = k.address === spare.address;
-            wipeKey(k);
-            if (!ok) {
-              replace(msg, errorBox('That does not match the spare shown. Check the card character by character and type it again.'));
-              return;
-            }
-            const addr = spare.address;
-            wipeKey(spare);
-            spare = null;
-            onVerified(addr);
-          }, { label: 'Spare seed (from the paper)', confirmLabel: 'Check' })),
-        msg, ...after);
-    },
-  });
-  showStep(title, ...before, card, ...after);
+
+  const showCard = () => {
+    showStep(title, ...before, spareCardDisplay(spare, { label, onWritten: retype }), ...after);
+  };
+
+  const retype = () => {
+    const msg = h('div');
+    showStep(title, ...before,
+      h('div', { class: 'card' },
+        h('h3', { text: `Type the spare for ${label} back in from the paper` }),
+        note('Type exactly what is on the card. This proves the card is right. The screen no longer shows the seed.'),
+        seedEntry((k) => {
+          const ok = k.address === spare.address;
+          wipeKey(k);
+          if (!ok) {
+            replace(msg, errorBox('That does not match the spare shown. Compare the card with the spare (Show the card again), fix the card, and type it again.'));
+            return;
+          }
+          const addr = spare.address;
+          wipeKey(spare);
+          spare = null;
+          onVerified(addr);
+        }, { label: 'Spare seed (from the paper)', confirmLabel: 'Check', repair: false }),
+        button('Show the card again', showCard, 'secondary')),
+      msg, ...after);
+  };
+
+  showCard();
 }
 
 export function replaceSpareFlow(env) {
@@ -59,7 +64,7 @@ export function replaceSpareFlow(env) {
   const acct = tx.Account;
   const account = payload.accounts.find((a) => a.address === acct);
   const ctx = ctxFor(payload, acct);
-  const ackUi = ackPanel(acks);
+  const ackUi = ackPanel([acks]);
 
   const intro = [
     resolutionNotes(resolved),
@@ -82,7 +87,7 @@ export function replaceSpareFlow(env) {
       let cur = null;
       try {
         if (!ackUi.ok()) throw new Error('Tick or type every item under "Check these before signing" first.');
-        finalCheck(filled, { multisigned: false, ownerReserveDrops: env.ownerReserveDrops }, ackUi.given);
+        finalCheck(filled, { multisigned: false, ownerReserveDrops: env.ownerReserveDrops }, ackUi.givenFor(0));
         cur = keyFromSeed(account.regularKey.seed);
         const signed = signTx(filled, cur);
         assertVerified([signed]);
