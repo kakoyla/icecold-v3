@@ -70,7 +70,7 @@ function start(env, confirmedNetwork) {
     }
   }
 
-  showStep('Estate Transfer',
+  show('Estate Transfer',
     warnBox(`${env.network.toUpperCase()} transfer. This moves the funds out of cold storage.`),
     txCard(tx, {}),
     expiryNote(env),

@@ -16,10 +16,12 @@ import { show, setNetwork, home } from '../app.js';
 export function prepare(env, { useVault = true, confirmedNetwork, extraAccounts = [] } = {}) {
   const base = useVault && session.vault ? session.vault.payload : null;
   // For Migration, accounts being added count as vault accounts for the
-  // AccountDelete destination check.
-  const vault = base && extraAccounts.length
-    ? { ...base, accounts: [...base.accounts, ...extraAccounts.map((address) => ({ address, addressBook: [] }))] }
-    : base;
+  // AccountDelete destination check. With no vault open, the user has
+  // confirmed the network on screen, and the new vault will be for it.
+  const extra = extraAccounts.map((address) => ({ address, addressBook: [] }));
+  let vault = base;
+  if (extra.length && base) vault = { ...base, accounts: [...base.accounts, ...extra] };
+  else if (extra.length && confirmedNetwork) vault = { network: confirmedNetwork, accounts: extra };
   const v = validateEnvelope(env, { vault, confirmedNetwork });
   let resolved = null;
   if (base && v.ok) resolved = resolveForEnvelope(base, env);

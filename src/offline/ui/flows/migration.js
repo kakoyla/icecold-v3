@@ -19,6 +19,7 @@ import { scanner } from '../qr.js';
 import { show, showStep, setNetwork } from '../app.js';
 import { prepare, ctxFor, showRefused, expiryNote, finalCheck, assertVerified, doneButton } from './common.js';
 import { spareCeremony } from './replace.js';
+import { confirmNetwork } from './recovery.js';
 
 export function migrationFlow(env) {
   setNetwork(env.network);
@@ -26,8 +27,16 @@ export function migrationFlow(env) {
     show('Migration', errorBox(`The open vault is ${session.vault.network.toUpperCase()} but this envelope is for ${String(env.network).toUpperCase()}. Lock the vault first.`));
     return;
   }
-  const kept = [...new Set(env.txs.filter((t) => t && t.TransactionType === 'SetRegularKey').map((t) => t.Account))];
-  const { v, payload } = prepare(env, { extraAccounts: kept });
+  // No vault open: the new vault's network is confirmed on screen (A3).
+  if (session.vault) start(env, undefined);
+  else confirmNetwork(env, 'Migration', (n) => start(env, n));
+}
+
+function start(env, confirmedNetwork) {
+  setNetwork(env.network);
+  const txsIn = Array.isArray(env.txs) ? env.txs : [];
+  const kept = [...new Set(txsIn.filter((t) => t && t.TransactionType === 'SetRegularKey').map((t) => t.Account))];
+  const { v, payload } = prepare(env, { extraAccounts: kept, confirmedNetwork });
   if (!v.ok) return showRefused(env, v, payload);
   const deleted = [...new Set(env.txs.filter((t) => t.TransactionType === 'AccountDelete').map((t) => t.Account))];
   const ackUi = ackPanel(v.txs.flatMap((t) => t.acks));
@@ -80,7 +89,7 @@ export function migrationFlow(env) {
   function nextAccount(i) {
     if (i >= kept.length) return vaultStep();
     const acct = kept[i];
-    const existing = payload && payload.accounts.find((a) => a.address === acct);
+    const existing = session.vault && session.vault.payload.accounts.find((a) => a.address === acct);
     const label = textInput({ placeholder: `Label for ${acct}`, value: existing ? existing.label : '' });
     const msg = h('div');
     showStep(`Migration: account ${i + 1} of ${kept.length}`,
@@ -111,7 +120,7 @@ export function migrationFlow(env) {
       if (tx.TransactionType === 'SetRegularKey') return fillRegularKey(tx, newKeys.get(tx.Account).address);
       return tx;
     });
-    const vaultAddresses = [...(payload ? payload.accounts.map((a) => a.address) : []), ...kept];
+    const vaultAddresses = [...(session.vault ? session.vault.payload.accounts.map((a) => a.address) : []), ...kept];
     for (const tx of filled) finalCheck(tx, { multisigned: false, ownerReserveDrops: env.ownerReserveDrops, vaultAddresses }, ackUi.given);
   }
 
