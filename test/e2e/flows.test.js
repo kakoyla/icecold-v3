@@ -299,6 +299,52 @@ for (const name of ENGINES) {
       assert.equal(await page.evaluate((s) => document.body.textContent.includes(s), shared.seed), false);
     });
 
+    test('leaving the scan screen turns the camera off', async () => {
+      await fresh();
+      await clickButton(page, 'Scan an envelope');
+      await page.waitForSelector('.scan-status:has-text("Scanning")');
+      assert.equal(await page.evaluate(() => window.__testCam.liveTracks()), 1);
+      await clickButton(page, 'Home');
+      assert.equal(await page.evaluate(() => window.__testCam.liveTracks()), 0);
+    });
+
+    test('migration: the shared key can be scanned from paper instead of typed', async () => {
+      await fresh();
+      const W = makeWorld('testnet');
+      const shared = generateKey();
+      const env = W.envelope('migration', [sls(W, W.personal.address, { Sequence: 10 }), srk(W, W.personal.address, { Sequence: 11 })]);
+      env.ledger = { [W.personal.address]: W.snapshot(shared.address, null) };
+      await scanEnvelope(page, env);
+      await clickButton(page, 'TESTNET');
+      await clickButton(page, 'Scan the shared key from paper');
+      await page.waitForSelector('.scan-status:has-text("Scanning")');
+      await showQrs(page, [shared.seed]);
+      await page.waitForSelector(`text=Shared key confirmed: ${shared.address}`);
+      assert.equal(await page.evaluate(() => window.__testCam.liveTracks()), 0, 'camera stopped after the scan');
+    });
+
+    test('vault screen: rename an account and add a destination, then save a new file', async () => {
+      await fresh();
+      const W = makeWorld('testnet');
+      await clickButton(page, 'Open vault');
+      await openVault(page, await vaultFile(W.vault));
+      await clickButton(page, 'Vault: accounts and address book');
+      const card = page.locator('.card', { hasText: W.managed.address }).first();
+      await card.locator('label.field input').fill('Managed (renamed)');
+      const dest = generateKey().address;
+      await card.locator('input[placeholder="Label"]').fill('Savings');
+      await card.locator('input[placeholder="r…"]').fill(dest);
+      await card.locator('label:has-text("needs tag") input').check();
+      await card.locator('button', { hasText: 'Add destination' }).click();
+      await page.waitForSelector('text=Changes are not saved yet');
+      await clickButton(page, 'Save a new vault file');
+      const dl = await captureDownload(page, () => passphraseAndClick(page, 'Save vault'));
+      const saved = await decryptVault(dl.text, PASS, 'testnet');
+      const m = saved.accounts.find((a) => a.address === W.managed.address);
+      assert.equal(m.label, 'Managed (renamed)');
+      assert.deepEqual(m.addressBook, [{ label: 'Savings', address: dest, isExchange: false, requiresTag: true }]);
+    });
+
     test('tools: generate keypair, decode/verify (valid and garbage), seed repair', async () => {
       await fresh();
       await clickButton(page, 'Generate keypair');

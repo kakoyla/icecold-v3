@@ -46,7 +46,9 @@ export const FAKE_CAMERA = `(() => {
   };
   setInterval(draw, 50);
   window.__testCam = { show(r) { rows = r; draw(); }, blank() { rows = null; draw(); } };
-  const gum = async () => canvas.captureStream(20);
+  const streams = [];
+  window.__testCam.liveTracks = () => streams.flatMap((s) => s.getTracks()).filter((t) => t.readyState === 'live').length;
+  const gum = async () => { const s = canvas.captureStream(20); streams.push(s); return s; };
   if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = gum;
   else Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: gum } });
 })();`;
