@@ -61,6 +61,16 @@ describe('envelope structure', () => {
   test('ownerReserveDrops over the 2 XRP ceiling fails (A4)', () => bad(
     W.envelope('sign', [W.payment()], { ownerReserveDrops: '2000001' }), 'owner-reserve'));
   test('ownerReserveDrops at the ceiling passes', () => ok(W.envelope('sign', [W.payment()], { ownerReserveDrops: '2000000' })));
+  for (const [name, builtAt] of [
+    ['numeric closeTime', { ledgerIndex: 1100, closeTime: 2026 }],
+    ['non-UTC closeTime', { ledgerIndex: 1100, closeTime: '2026-11-25 12:00' }],
+    ['zero ledgerIndex', { ledgerIndex: 0, closeTime: '2026-11-25T12:00:00Z' }],
+    ['extra field', { ledgerIndex: 1100, closeTime: '2026-11-25T12:00:00Z', x: 1 }],
+  ]) {
+    test(`builtAt with ${name} fails`, () => bad(W.envelope('sign', [W.payment()], { builtAt }), 'envelope'));
+  }
+  test('a transaction already past its LastLedgerSequence fails', () => bad(
+    W.envelope('sign', [W.payment({ LastLedgerSequence: 1100 })]), 'expired'));
   test('empty txs fails', () => bad(W.envelope('sign', []), 'txs'));
   test('unsupported transaction type fails', () => bad(W.envelope('sign', [
     W.base(W.personal.address, { TransactionType: 'OfferCreate' })]), 'unsupported-type'));

@@ -16,6 +16,7 @@ const SNAPSHOT_FIELDS = ['balance', 'reserve', 'regularKey', 'signerList', 'mast
 const VAULT_EXEMPT = new Set(['recovery', 'estate', 'migration']);
 const MULTISIGNED = new Set(['recovery', 'estate']);
 const DROPS_RE = /^(0|[1-9]\d{0,17})$/;
+const ISO_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
 /** Per-purpose shape: allowed types per position, and which txs are templates. */
 function purposeShape(env, err) {
@@ -144,8 +145,11 @@ export function validateEnvelope(env, ctx = {}) {
   } else if (BigInt(env.ownerReserveDrops) > MAX_OWNER_RESERVE_DROPS) {
     err('owner-reserve', `ownerReserveDrops ${env.ownerReserveDrops} is over the ceiling of ${MAX_OWNER_RESERVE_DROPS} drops`);
   }
-  if (!env.builtAt || !Number.isInteger(env.builtAt.ledgerIndex) || Number.isNaN(Date.parse(env.builtAt.closeTime))) {
-    err('envelope', 'builtAt needs ledgerIndex and closeTime');
+  const b = env.builtAt;
+  if (!b || typeof b !== 'object' || Array.isArray(b) ||
+      Object.keys(b).length !== 2 || !Number.isInteger(b.ledgerIndex) || b.ledgerIndex <= 0 ||
+      typeof b.closeTime !== 'string' || !ISO_UTC_RE.test(b.closeTime) || Number.isNaN(Date.parse(b.closeTime))) {
+    err('envelope', 'builtAt must be exactly { ledgerIndex: positive integer, closeTime: ISO 8601 UTC string }');
   }
   if (errors.length) return result();
 
@@ -175,6 +179,9 @@ export function validateEnvelope(env, ctx = {}) {
       vaultAddresses,
       requireTag: env.purpose === 'estate',
     });
+    if (Number.isInteger(tx && tx.LastLedgerSequence) && tx.LastLedgerSequence <= env.builtAt.ledgerIndex) {
+      r.errors.push({ code: 'expired', message: 'LastLedgerSequence is not after the ledger the envelope was built at' });
+    }
     if (acct && !(acct in env.ledger)) r.errors.push({ code: 'ledger-missing', message: `no ledger snapshot for ${acct}` });
     if (!VAULT_EXEMPT.has(env.purpose) && !inVault) {
       r.errors.push({ code: 'account-not-in-vault', message: `${acct} is not in this vault` });
