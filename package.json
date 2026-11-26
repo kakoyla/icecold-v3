@@ -18,6 +18,8 @@
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
+    "jsqr": "1.4.0",
+    "qrcode-generator": "2.0.4",
     "ripple-address-codec": "5.0.1",
     "ripple-binary-codec": "2.11.0",
     "ripple-keypairs": "3.1.0"

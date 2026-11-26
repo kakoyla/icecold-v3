@@ -159,14 +159,98 @@ Migration involves writing spare seeds on paper and typing them back. So the
 configurable. The online builder applies this in Phase 3. Folded into
 SPEC.md §5.3.
 
+## A13: Seed Repair (§4.7). Approved by owner.
+
+v2 has no seed-repair code, so v3 defines it. When a typed seed fails its
+checksum:
+
+- Characters that are never valid are highlighted straight away. The XRPL
+  alphabet has no `0`, `O`, `I` or `l`.
+- Every single-character fix is tried:
+  - a substitution, including a case change
+  - a swap of two adjacent characters
+  - a deleted character
+  - an inserted character
+- Each candidate is checked with the pinned `ripple-address-codec` checksum.
+  That's about 3,600 checks, well under a second.
+- Candidates that pass are listed with the address each one derives. A 32-bit
+  checksum makes a false match about 1 in 4 billion per candidate.
+- In Recovery and Estate, a candidate whose address is in the ledger's signer
+  list is highlighted. The user still picks it and confirms.
+- Seed Repair is a tool of its own, and it also runs inside Recovery, Estate
+  Transfer and Migration whenever a typed seed fails.
+
+## A14: where Recovery puts the new key (§4.6 step 3). Approved by owner.
+
+- If a vault for the same network is open, the new key is added to it.
+  Otherwise a new vault is made.
+- The new key is stored as `pendingKey`, and the A2 gate runs before the signed
+  QR is shown. The user picks the saved file back in, and it must decrypt and
+  contain the key. That way, a download that failed can't lead to a key change
+  to a key nobody saved.
+- The next envelope's ledger snapshot then promotes the pending key (§4.5).
+
+## A15: Migration saves through the A2 gate (§4.9). Approved by owner.
+
+- The shared key can be typed, or scanned from paper with the offline webcam
+  (§4.9 step 1).
+- Every kept account's new key goes into one new vault, as `pendingKey`, with
+  its label.
+- The gate checks all the pending keys in a single decrypt before any signed
+  QR is shown.
+
+## A16: QR formats across the gap (§1, §5.3). Decided by Claude, reviewed by Gemini.
+
+- **Envelope, online to offline:** each QR holds the text
+  `IC3E:<id>:<i>/<n>:<chunk>`.
+  - `<id>` is the first 16 hex characters of the SHA-256 of the whole envelope
+    JSON (UTF-8).
+  - The chunks are consecutive pieces of that JSON. `1 <= i <= n <= 64`.
+  - Parts can be scanned in any order. Parts with another `<id>` are refused,
+    so two envelopes can never be spliced together.
+  - After the last part, the joined text must hash back to `<id>`.
+  - A small envelope is a single `1/1` part. The chunk size is set by testing
+    the real webcam (§5.3); it starts at 800 characters.
+- **Signed transaction, offline to online:** one QR per transaction, holding
+  only the signed blob in upper-case hex, so any XRPL tool can read it. The
+  screen numbers them ("2 of 3"). The online side matches each one by hash
+  (§5.5).
+- **Secret on paper, scanned only by the offline webcam:** the seed text
+  itself.
+- **No paste or typed input for envelopes.** §1 says unsigned data comes in by
+  QR, and the offline machine has nothing to paste from. Decode / Verify still
+  takes typed hex, because that's what the tool is for.
+
+## A17: idle lock warning (§4.2). Approved by owner.
+
+- Copying a spare by hand can take minutes with no key pressed. So for the last
+  60 seconds before the 5-minute lock, a large countdown is shown; any key or
+  click resets the timer.
+- Locking, and every "done" after signing, does all of this:
+  - wipes the key objects
+  - clears every input
+  - removes any displayed seed from the page
+  - stops the camera
+  - drops the open vault from memory
+- Every secret input has `autocomplete="off"`, `spellcheck="false"` and
+  `autocapitalize="off"`.
+
+## A18: QR libraries and rendering (§4.1). Decided by Claude.
+
+- **jsQR 1.4.0** decodes, as in v2. **qrcode-generator 2.0.4** encodes. It has
+  no dependencies.
+- Neither library uses `Math.random` or any network API (checked at install).
+- QR codes are drawn onto a `<canvas>` from the module matrix, with a white
+  quiet zone. The library's `<img>` (a `data:` URL) and `<table>` (inline
+  `style` attributes) outputs are not used, so the Phase 1 CSP stays unchanged.
+
 ## Tooling. Decided by Claude.
 
 - **Build:** esbuild directly, not Vite. One small dependency, deterministic
   output.
 - **Tests:** Node's built-in `node:test`, not vitest. vitest 5 needs Node 22,
   and the built-in runner adds no dependency.
-- **QR libraries:** QR encoder/decoder are pinned when Phase 2 (UI) needs them,
-  so Phase 1 ships no unused code.
+- **QR libraries:** see A18.
 - **Seed repair and the full signing screens** are Phase 2 (UI).
 
 ## Known limitations
