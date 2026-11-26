@@ -60,11 +60,42 @@ function purposeShape(env, err) {
       const ok = ['SetRegularKey', 'SignerListSet', 'AccountDelete'];
       if (t.length === 0 || t.some((x) => !ok.includes(x))) {
         err('purpose-shape', 'migration holds only SetRegularKey, SignerListSet and AccountDelete');
+      } else {
+        checkMigrationOrder(env.txs, err);
       }
       return { templates: t.map((x) => x === 'SetRegularKey' || x === 'SignerListSet') };
     }
     default:
       return { templates: t.map(() => false) };
+  }
+}
+
+/**
+ * DECISIONS A10: per-account shape of a migration envelope.
+ * Every transaction is signed by the shared regular key (SPEC §4.9 step 3).
+ * Once SetRegularKey validates, the shared key no longer signs for that
+ * account, so for a kept account the SignerListSet (Sequence N) must come
+ * before the SetRegularKey (Sequence N+1). That also puts the spare on the
+ * ledger before the key changes. A small account has exactly one AccountDelete.
+ */
+function checkMigrationOrder(txs, err) {
+  const byAccount = new Map();
+  for (const tx of txs) {
+    const list = byAccount.get(tx.Account) || [];
+    list.push(tx);
+    byAccount.set(tx.Account, list);
+  }
+  for (const [acct, list] of byAccount) {
+    const types = list.map((x) => x.TransactionType);
+    if (types.length === 1 && types[0] === 'AccountDelete') continue;
+    if (types.length !== 2 || types[0] !== 'SignerListSet' || types[1] !== 'SetRegularKey') {
+      err('purpose-shape', `migration: ${acct} needs SignerListSet then SetRegularKey, or a single AccountDelete`);
+      continue;
+    }
+    const [sls, srk] = list;
+    if (!(Number.isInteger(sls.Sequence) && srk.Sequence === sls.Sequence + 1)) {
+      err('purpose-shape', `migration: ${acct} SetRegularKey Sequence must be SignerListSet Sequence + 1`);
+    }
   }
 }
 

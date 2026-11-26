@@ -111,6 +111,20 @@ address it controls. That would bypass §0 principle 1: new keys are generated
 offline. The stricter reading is easy to loosen if the owner prefers.
 **Spec wording proposed** for §5.3.
 
+## A10: order of migration transactions (§4.9). Found in review; spec wording proposed.
+
+§4.9 signs every migration transaction with the shared regular key. When a
+`SetRegularKey` validates, the shared key stops signing for that account. A
+later `SignerListSet` signed with it would fail with `tefBAD_AUTH`. So each
+kept account must have:
+
+- a `SignerListSet` at Sequence N, then
+- a `SetRegularKey` at Sequence N+1.
+
+This also puts the spare on the ledger before the key changes. A small account
+has exactly one `AccountDelete`. The offline side refuses any other shape.
+**Spec wording proposed** for §4.9 and §4.4.
+
 ## Tooling. Decided by Claude.
 
 - **Build:** esbuild directly, not Vite. One small dependency, deterministic

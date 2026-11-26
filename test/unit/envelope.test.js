@@ -42,8 +42,9 @@ describe('valid envelopes for each purpose', () => {
   test('migration: accounts not yet in the (new, empty) vault are allowed', () => {
     const fresh = { ...W.vault, accounts: [] };
     ok(W.envelope('migration', [
-      srkTemplate(W.personal.address, 10),
-      W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 1, Sequence: 11 }),
+      W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 1, Sequence: 10 }),
+      srkTemplate(W.personal.address, 11),
+      W.base(W.managed.address, { TransactionType: 'AccountDelete', Destination: W.personal.address, Fee: '200000' }),
     ]), { vault: fresh });
   });
 });
@@ -90,6 +91,17 @@ describe('purpose shapes', () => {
   test('sign: AccountDelete outside migration is refused (DECISIONS A9)', () => bad(
     W.envelope('sign', [W.base(W.personal.address, { TransactionType: 'AccountDelete', Destination: W.managed.address, Fee: '200000' })]), 'purpose-shape'));
   test('migration containing a Payment fails', () => bad(W.envelope('migration', [W.payment()]), 'purpose-shape'));
+  // DECISIONS A10: the shared key stops signing once SetRegularKey validates.
+  const sls = (seq, acct = W.personal.address) => W.base(acct, { TransactionType: 'SignerListSet', SignerQuorum: 1, Sequence: seq });
+  test('migration: SetRegularKey before SignerListSet fails (A10)', () => bad(
+    W.envelope('migration', [srkTemplate(W.personal.address, 10), sls(11)]), 'purpose-shape'));
+  test('migration: SetRegularKey Sequence must be SignerListSet + 1 (A10)', () => bad(
+    W.envelope('migration', [sls(10), srkTemplate(W.personal.address, 12)]), 'purpose-shape'));
+  test('migration: a kept account with only one of the pair fails (A10)', () => bad(
+    W.envelope('migration', [sls(10)]), 'purpose-shape'));
+  test('migration: an AccountDelete account with extra transactions fails (A10)', () => bad(
+    W.envelope('migration', [sls(10), W.base(W.personal.address, { TransactionType: 'AccountDelete', Destination: W.managed.address, Fee: '200000', Sequence: 11 })]),
+    'purpose-shape'));
   test('estate that is not multisigned fails', () => bad(
     W.envelope('estate', [W.payment({ DestinationTag: 7 })]), 'signing-pubkey', { vault: null, confirmedNetwork: 'testnet' }));
 });
