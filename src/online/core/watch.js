@@ -38,5 +38,7 @@ export function clearWatch(storage, network) { storage.removeItem(KEY(network));
 
 /** True if any word in the text is a valid seed (SPEC §5.2: never accept a secret). */
 export function containsSeed(text) {
-  return String(text).split(/\s+/).some((w) => w.length >= 25 && w.length <= 40 && isValidSeed(w));
+  // Split on anything that is not a base58 character, so a seed inside
+  // quotes, JSON or punctuation is still found.
+  return String(text).split(/[^1-9A-HJ-NP-Za-km-z]+/).some((w) => w.length >= 25 && w.length <= 40 && isValidSeed(w));
 }

@@ -78,6 +78,22 @@ function envelope(network, purpose, state, txs, ledger) {
   return { env, acks: v.txs.flatMap((t) => t.acks) };
 }
 
+/** Ledgers for the expiry window: SPEC §5.3 default, or the user's minutes. */
+const windowLedgers = (p, dflt) => {
+  if (p.windowMinutes === undefined || p.windowMinutes === null) return dflt;
+  const m = Number(p.windowMinutes);
+  if (!Number.isInteger(m) || m < 10 || m > 360) throw new BuildError('window', 'the expiry window must be 10 to 360 minutes');
+  return Math.round((m * 60) / 4);
+};
+
+/** The account must keep its reserve after the amount and every fee. */
+function checkSpendable(snap, amountDrops, fees) {
+  const spendable = BigInt(snap.balance) - BigInt(snap.reserve);
+  if (BigInt(amountDrops) + fees > spendable) {
+    throw new BuildError('insufficient', `not enough XRP: at most ${spendable - fees > 0n ? spendable - fees : 0n} drops can be sent while keeping the ${snap.reserve}-drop reserve`);
+  }
+}
+
 const base = (TransactionType, account, s, state, fee, lls, extra = {}) => ({
   TransactionType, Account: account, Fee: fee, Sequence: s, LastLedgerSequence: state.ledgerIndex + lls, ...extra,
 });
@@ -95,6 +111,8 @@ const base = (TransactionType, account, s, state, fee, lls, extra = {}) => ({
 export async function build(rpc, network, purpose, p) {
   const state = await networkState(rpc);
   const notes = [];
+  const W1 = windowLedgers(p, LLS_WINDOW);
+  const W3 = windowLedgers(p, LLS_WINDOW_MIGRATION);
   const snap = async (a) => snapshot(rpc, a, state);
 
   switch (purpose) {
@@ -107,13 +125,16 @@ export async function build(rpc, network, purpose, p) {
         for (const k of ['SetFlag', 'ClearFlag']) if (p.accountSet[k] !== undefined && p.accountSet[k] !== '') extra[k] = Number(p.accountSet[k]);
         if (p.accountSet.Domain !== undefined) extra.Domain = Array.from(new TextEncoder().encode(p.accountSet.Domain)).map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
         if (!Object.keys(extra).length) throw new BuildError('accountset', 'choose a setting to change');
-        tx = base('AccountSet', p.account, s.sequence, state, feeFor('single', state), LLS_WINDOW, extra);
+        tx = base('AccountSet', p.account, s.sequence, state, feeFor('single', state), W1, extra);
       } else {
         checkAddress(p.destination, 'The destination');
         const tag = checkTag(p.destinationTag);
         await destinationTagRule(rpc, p.destination, tag);
-        tx = base('Payment', p.account, s.sequence, state, feeFor('single', state), LLS_WINDOW,
-          { Destination: p.destination, Amount: xrpToDrops(p.amountXrp), ...(tag !== undefined ? { DestinationTag: tag } : {}) });
+        const fee = feeFor('single', state);
+        const amount = xrpToDrops(p.amountXrp);
+        checkSpendable(s.snap, amount, BigInt(fee));
+        tx = base('Payment', p.account, s.sequence, state, fee, W1,
+          { Destination: p.destination, Amount: amount, ...(tag !== undefined ? { DestinationTag: tag } : {}) });
       }
       return { ...envelope(network, 'sign', state, [tx], { [p.account]: s.snap }), notes };
     }
@@ -124,28 +145,30 @@ export async function build(rpc, network, purpose, p) {
       const tag = checkTag(p.destinationTag);
       await destinationTagRule(rpc, p.destination, tag);
       const fee = feeFor('single', state);
-      const pay = base('Payment', p.account, s.sequence, state, fee, LLS_WINDOW,
-        { Destination: p.destination, Amount: xrpToDrops(p.amountXrp), ...(tag !== undefined ? { DestinationTag: tag } : {}) });
-      const srk = base('SetRegularKey', p.account, s.sequence + 1, state, fee, LLS_WINDOW);
+      const amount = xrpToDrops(p.amountXrp);
+      checkSpendable(s.snap, amount, 2n * BigInt(fee)); // payment + key change
+      const pay = base('Payment', p.account, s.sequence, state, fee, W1,
+        { Destination: p.destination, Amount: amount, ...(tag !== undefined ? { DestinationTag: tag } : {}) });
+      const srk = base('SetRegularKey', p.account, s.sequence + 1, state, fee, W1);
       return { ...envelope(network, 'send-rotate', state, [pay, srk], { [p.account]: s.snap }), notes };
     }
     case 'rotate': {
       checkAddress(p.account, 'The account');
       const s = await snap(p.account);
-      const srk = base('SetRegularKey', p.account, s.sequence, state, feeFor('single', state), LLS_WINDOW);
+      const srk = base('SetRegularKey', p.account, s.sequence, state, feeFor('single', state), W1);
       return { ...envelope(network, 'rotate', state, [srk], { [p.account]: s.snap }), notes };
     }
     case 'recovery': {
       checkAddress(p.account, 'The account');
       const s = await snap(p.account);
       if (!s.snap.signerList) throw new BuildError('no-signer-list', 'this account has no signer list, so a spare cannot recover it');
-      const srk = base('SetRegularKey', p.account, s.sequence, state, feeFor('multi', state), LLS_WINDOW, { SigningPubKey: '' });
+      const srk = base('SetRegularKey', p.account, s.sequence, state, feeFor('multi', state), W1, { SigningPubKey: '' });
       return { ...envelope(network, 'recovery', state, [srk], { [p.account]: s.snap }), notes };
     }
     case 'replace-spare': {
       checkAddress(p.account, 'The account');
       const s = await snap(p.account);
-      const sls = base('SignerListSet', p.account, s.sequence, state, feeFor('single', state), LLS_WINDOW, { SignerQuorum: 1 });
+      const sls = base('SignerListSet', p.account, s.sequence, state, feeFor('single', state), W1, { SignerQuorum: 1 });
       return { ...envelope(network, 'replace-spare', state, [sls], { [p.account]: s.snap }), notes };
     }
     case 'estate': {
@@ -160,7 +183,7 @@ export async function build(rpc, network, purpose, p) {
       const amount = BigInt(s.snap.balance) - BigInt(s.snap.reserve) - BigInt(fee);
       if (amount <= 0n) throw new BuildError('nothing-to-send', 'after the reserve and fee there is nothing to send');
       notes.push(`Sends everything above the reserve: ${amount} drops. The reserve (${s.snap.reserve} drops) stays in the account.`);
-      const pay = base('Payment', p.account, s.sequence, state, fee, LLS_WINDOW,
+      const pay = base('Payment', p.account, s.sequence, state, fee, W1,
         { SigningPubKey: '', Destination: p.destination, Amount: String(amount), ...(tag !== undefined ? { DestinationTag: tag } : {}) });
       return { ...envelope(network, 'estate', state, [pay], { [p.account]: s.snap }), notes };
     }
@@ -172,9 +195,13 @@ export async function build(rpc, network, purpose, p) {
       if (new Set([...kept, ...small]).size !== kept.length + small.length) throw new BuildError('migration-duplicate', 'an account is listed twice');
       if (small.length) {
         checkAddress(p.leftoversTo, 'The account for leftovers');
+        if (small.includes(p.leftoversTo)) throw new BuildError('leftovers', 'leftovers cannot go to an account being closed');
         if (!kept.includes(p.leftoversTo) && !(p.leftoversKnown || []).includes(p.leftoversTo)) {
           throw new BuildError('leftovers', 'leftovers must go to a kept account');
         }
+        const needs = await destinationNeedsTag(rpc, p.leftoversTo);
+        if (needs === null) throw new BuildError('leftovers', 'the account for leftovers does not exist on this network');
+        if (needs) throw new BuildError('leftovers', 'the account for leftovers requires a destination tag; choose a kept account');
       }
       const txs = [];
       const ledger = {};
@@ -187,19 +214,23 @@ export async function build(rpc, network, purpose, p) {
         ledger[a] = s.snap;
         const fee = feeFor('single', state);
         // A10: spare first (Sequence N), then the new regular key (N+1).
-        txs.push(base('SignerListSet', a, s.sequence, state, fee, LLS_WINDOW_MIGRATION, { SignerQuorum: 1 }));
-        txs.push(base('SetRegularKey', a, s.sequence + 1, state, fee, LLS_WINDOW_MIGRATION));
+        txs.push(base('SignerListSet', a, s.sequence, state, fee, W3, { SignerQuorum: 1 }));
+        txs.push(base('SetRegularKey', a, s.sequence + 1, state, fee, W3));
       }
+      // Collect every small account's blockers before refusing (SPEC §5.4).
+      const blocked = [];
       for (const a of small) {
         const s = await snap(a);
+        if (!s.snap.regularKey) throw new BuildError('no-regular-key', `${a} has no regular key to sign its AccountDelete`);
         if (shared && s.snap.regularKey !== shared) throw new BuildError('not-shared', `${a} does not use the shared regular key`);
         shared = shared || s.snap.regularKey;
         const objects = await accountObjects(rpc, a);
         const blockers = deleteBlockers({ sequence: s.sequence, balance: s.snap.balance, ownerCount: s.ownerCount, objects, ledgerIndex: state.ledgerIndex, ownerReserve: state.ownerReserve });
-        if (blockers.length) throw new BuildError('delete-blocked', `${a} cannot be deleted yet: ${blockers.map((b) => b.message).join('; ')}`);
+        if (blockers.length) { blocked.push(`${a}: ${blockers.map((b) => b.message).join('; ')}`); continue; }
         ledger[a] = s.snap;
-        txs.push(base('AccountDelete', a, s.sequence, state, feeFor('delete', state), LLS_WINDOW_MIGRATION, { Destination: p.leftoversTo }));
+        txs.push(base('AccountDelete', a, s.sequence, state, feeFor('delete', state), W3, { Destination: p.leftoversTo }));
       }
+      if (blocked.length) throw new BuildError('delete-blocked', `These accounts cannot be deleted yet. ${blocked.join(' | ')}`);
       return { ...envelope(network, 'migration', state, txs, ledger), notes, shared };
     }
     default:

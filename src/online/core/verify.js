@@ -37,8 +37,10 @@ export function checkSigned(built, blob) {
     }
     if (k === 'SignerEntries' && templateSls) {
       const e = tx.SignerEntries;
-      const one = Array.isArray(e) && e.length === 1 && e[0].SignerEntry && e[0].SignerEntry.SignerWeight === 1 &&
-        isValidAddress(e[0].SignerEntry.Account) && e[0].SignerEntry.Account !== tx.Account;
+      const se = Array.isArray(e) && e.length === 1 && e[0] && e[0].SignerEntry;
+      const one = !!se && Object.keys(e[0]).length === 1 &&
+        Object.keys(se).length === 2 && se.SignerWeight === 1 &&
+        isValidAddress(se.Account) && se.Account !== tx.Account;
       if (!one) errors.push('the filled-in signer list is not one spare with weight 1');
       else filled.spare = e[0].SignerEntry.Account;
       continue;

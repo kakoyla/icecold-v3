@@ -26,8 +26,8 @@ export async function submitAndWait(rpc, blob, { lastLedgerSequence, sleep = (ms
   const hash = hashSignedBlob(blob);
   const sub = await rpc({ command: 'submit', tx_blob: blob });
   const prelim = sub.engine_result;
-  if (/^(tem|tef|tel)/.test(prelim) && prelim !== 'telCAN_NOT_QUEUE') {
-    // Not applied and will not be retried by the network.
+  if (/^(tem|tef|tel)/.test(prelim)) {
+    // Not applied, and the network drops it (telCAN_NOT_QUEUE* included).
     return { hash, code: prelim, validated: false, message: plainResult(prelim) };
   }
   // Ledgers close every few seconds, so LastLedgerSequence passes long
@@ -43,7 +43,16 @@ export async function submitAndWait(rpc, blob, { lastLedgerSequence, sleep = (ms
     }
     const ss = await rpc({ command: 'server_state' });
     const seq = ss.state && ss.state.validated_ledger && ss.state.validated_ledger.seq;
-    if (seq && seq > lastLedgerSequence) return { hash, code: 'tefMAX_LEDGER', validated: false, message: plainResult('tefMAX_LEDGER') };
+    if (seq && seq > lastLedgerSequence) {
+      // One last look: it may have validated in the final ledger.
+      let last = null;
+      try { last = await rpc({ command: 'tx', transaction: hash }); } catch { last = null; }
+      if (last && last.validated) {
+        const code = last.meta && last.meta.TransactionResult;
+        return { hash, code, validated: true, ledgerIndex: last.ledger_index, message: plainResult(code) };
+      }
+      return { hash, code: 'tefMAX_LEDGER', validated: false, message: plainResult('tefMAX_LEDGER') };
+    }
   }
   return { hash, code: 'unknown', validated: false, message: 'Still not validated after a long wait. Check the transaction hash in an explorer before doing anything else.' };
 }
