@@ -75,7 +75,7 @@ The current **shared regular key** is retired once migration is done. Its paper 
 |---|---|---|
 | `Payment` | Sending XRP | XRP only: `Amount` must be a drops string. Refuse `Paths`, `SendMax`, `DeliverMin`, and `tfPartialPayment`. |
 | `SetRegularKey` | Rotation, migration, recovery | Refuse any `SetRegularKey` that removes the key (no `RegularKey` field). |
-| `SignerListSet` | Migration, replacing a spare | Deleting a list (quorum 0) needs a typed confirmation. |
+| `SignerListSet` | Migration, replacing a spare | Arrives as a template with `SignerQuorum: 1` and no entries; the offline side fills in the spare. Deleting a list is not supported (DECISIONS A11). |
 | `AccountSet` | Occasional settings | Show every flag and field in plain English, with the catch-all from v2. |
 | `AccountDelete` | Closing small accounts during migration | Destination must be a vault account, unless the user explicitly overrides. |
 
@@ -118,14 +118,14 @@ Both sides refuse every other type.
 - Before anything else, the file runs known test vectors:
   - seed → address for Ed25519 and secp256k1
   - a deterministic signature of a fixed transaction
-  - a multisign signature
+  - a multisign signature, for Ed25519 and secp256k1
   - a binary codec round-trip
 - If any vector fails, a red full-width banner appears and every signing function is disabled.
-- The file shows its own build version and expected SHA-256, so it can be compared against the paper log.
+- The file shows its own build version and the SHA-256 of its embedded application code, and re-checks that hash at startup (red banner on mismatch). A file cannot contain its own SHA-256, so the hash of the whole HTML file is published in the release notes and written on the paper log, and checked with `sha256sum` before opening the file (DECISIONS A1).
 
 ### 4.4 Generic signing flow (every signature goes through this)
 1. Scan the envelope QR (§5.3).
-2. Validate it: supported type, network matches the vault, `LastLedgerSequence` present, fee under the cap (§4.8), and the account is in the vault (except in Recovery or Estate).
+2. Validate it: supported type, network matches the vault, `LastLedgerSequence` present, fee under the cap (§4.8), and the account is in the vault (except in Recovery, Estate or Migration). With no vault open (Recovery, Estate), the user confirms the network on screen instead (DECISIONS A3).
 3. Show a **plain-English summary card** in large type, for example: "Send 500 XRP from **Personal** to **Coinbase deposit** (rAbc…xyz9), tag 123456". First-time destinations get an extra confirmation. Every raw field is listed below the summary.
 4. Show a **network banner** in the header: red **MAINNET** or blue **TESTNET**.
 5. Enter the passphrase, then sign.
@@ -170,16 +170,16 @@ Both sides refuse every other type.
 - **Seed Repair:** carried over from v2.
 
 ### 4.8 Hard safety checks (each one must have a failing test)
-- **Fee caps:** 0.001 XRP for single-signed transactions, 0.002 XRP for multi-signed, and the owner reserve plus 0.001 XRP for AccountDelete. Values are open item O-5.
+- **Fee caps:** 0.001 XRP for single-signed transactions, 0.002 XRP for multi-signed, and the owner reserve plus 0.001 XRP for AccountDelete. The owner reserve comes from the envelope and is refused above 2 XRP (DECISIONS A4). Values are open item O-5.
 - **Payment:** XRP only, no partial-payment flag, `Destination` ≠ `Account`.
 - **Destination tags:** if the destination is labeled as an exchange, or the user marks it as needing a tag, a `DestinationTag` is required.
 - **SetRegularKey:** may not remove the key.
 - **Network:** the envelope's network must match the vault's.
-- **Expiry:** `LastLedgerSequence` must be present. The envelope's estimated expiry time is shown on screen.
-- **No unknown fields:** an unknown field blocks signing until the user acknowledges it.
+- **Expiry:** `LastLedgerSequence` must be present and after the envelope's `builtAt` ledger. The estimated expiry time, `closeTime + (LastLedgerSequence − ledgerIndex) × 4 s`, is shown on screen (DECISIONS A6).
+- **No unknown fields:** an unknown field or flag blocks signing until the user acknowledges it. The allowed fields per type, and the fields refused outright, are listed in DECISIONS A5.
 
 ### 4.9 Migration (one-time)
-- **Input:** a migration envelope from the online wizard. For each kept account it holds a `SetRegularKey` template and a `SignerListSet` template; for each small account it holds an `AccountDelete`.
+- **Input:** a migration envelope from the online wizard. For each kept account it holds a `SignerListSet` template at Sequence N, then a `SetRegularKey` template at Sequence N+1; for each small account it holds a single `AccountDelete`. The order matters: once `SetRegularKey` validates, the shared key no longer signs for that account (DECISIONS A10).
 - **Steps:**
   1. Enter the shared regular key, typed from paper or scanned from paper with the offline webcam. It is held only for this session.
   2. For each kept account:
@@ -207,11 +207,13 @@ Both sides refuse every other type.
 - A JSON object with:
   - `version`
   - `network`
-  - `purpose` (`sign`, `send-rotate`, `rotate`, `migration`, `recovery`, `estate`, `replace-spare`)
+  - `purpose` (`sign`, `send-rotate`, `rotate`, `migration`, `recovery`, `estate`, `replace-spare`). `sign` carries exactly one `Payment` or `AccountSet`; key and signer-list changes only travel under their own purposes (DECISIONS A9).
   - `txs[]`: unsigned, with `Sequence`, `Fee` and `LastLedgerSequence` filled in
   - a `ledger` snapshot per account: balance, reserve, current `RegularKey`, `SignerList`, whether the master key is disabled
+  - `ownerReserveDrops`: the network's owner reserve, in drops, for the AccountDelete fee cap (DECISIONS A4)
+  - `builtAt`: `{ ledgerIndex, closeTime }` of the ledger the envelope was built from, for the expiry estimate (DECISIONS A6)
 - Kept compact. If it's too large for one QR that the actual webcam reads reliably, split it into a numbered sequence ("1/3"). The size threshold is set by testing with the real webcam.
-- `LastLedgerSequence` window defaults to about 1 hour and is configurable.
+- `LastLedgerSequence` window defaults to about 1 hour (about 3 hours for `migration`) and is configurable (DECISIONS A12).
 
 ### 5.4 Flows
 - **Send:** Payment only.
@@ -320,7 +322,7 @@ Tokens and trust lines, the DEX, escrow, NFTs, AMM, checks, building transaction
 ## 9. Open items
 | ID | Item | Owner |
 |---|---|---|
-| O-1 | Exact browser and version on the signing machine | Owner |
+| O-1 | Exact browser and version on the signing machine. **Interim:** portable Firefox ESR 140.17.0, 32-bit Linux; closes when the probe passes on the machine (DECISIONS O-1). | Owner |
 | O-2 | Addresses of the small accounts (the wizard checks for blockers) | Owner |
 | O-3 | ~~Printing path for Spare Key Cards~~ **Resolved 2026-11-25: handwritten.** No printer that stays permanently offline is available. | — |
 | O-4 | Confirm watch-only label storage on the online side | Owner |

@@ -1,8 +1,8 @@
 # Decisions log
 
 SPEC.md is authoritative. This file records how ambiguities in it were resolved
-and choices the spec leaves open. Nothing here changes the spec. Entries marked
-**spec wording proposed** are waiting for the owner to fold them into SPEC.md.
+and choices the spec leaves open. Nothing here changes the spec. Approved
+wording was folded into SPEC.md on 2026-11-25; entries say where.
 
 ## Open item O-1: signing-machine browser (interim)
 
@@ -15,7 +15,7 @@ and choices the spec leaves open. Nothing here changes the spec. Entries marked
   installed on the machine.
 - **Build target:** `firefox140`, set in one place: `build.config.js`.
 - **Still open:** O-1 closes after the probe page passes on the machine itself.
-  **Spec wording proposed:** "Firefox ESR 140.17.0, 32-bit Linux, portable copy."
+  The interim plan is noted in SPEC.md §9.
 
 ## A1: the file cannot show its own SHA-256 (§4.3). Approved by owner.
 
@@ -44,8 +44,8 @@ pending key is there before the signed pair is shown.
 ## A4: AccountDelete fee cap needs the owner reserve (§4.8). Delegated to Claude; ceiling approved by owner.
 
 The envelope (§5.3) carries a network-wide `ownerReserveDrops` field. The
-AccountDelete cap is `ownerReserveDrops + 1000` drops. **Spec wording
-proposed** for §5.3.
+AccountDelete cap is `ownerReserveDrops + 1000` drops. Folded into
+SPEC.md §4.8 and §5.3.
 
 The online side is untrusted, so the offline side sets a hard ceiling of
 **2 XRP** on `ownerReserveDrops`, in `config.js`. That was the owner reserve
@@ -90,7 +90,7 @@ and burn the account's balance as the fee.
 To show an "estimated expiry time", the envelope carries
 `builtAt: { ledgerIndex, closeTime }`. Expiry is estimated as
 `closeTime + (LastLedgerSequence - ledgerIndex) x 4 s`, which is shown as an
-estimate. **Spec wording proposed** for §5.3.
+estimate. Folded into SPEC.md §5.3.
 
 ## A7: Estate payments without a destination tag need acknowledgement. Decided by Claude.
 
@@ -127,7 +127,7 @@ AccountSet flows in §5.4. These are refused under `sign`:
 plain signing request that sets the regular key or the signer list to an
 address it controls. That would bypass §0 principle 1: new keys are generated
 offline. The stricter reading is easy to loosen if the owner prefers.
-**Spec wording proposed** for §5.3.
+Folded into SPEC.md §5.3.
 
 ## A10: order of migration transactions (§4.9). Found in review; approved by owner.
 
@@ -141,7 +141,7 @@ kept account must have:
 
 This also puts the spare on the ledger before the key changes. A small account
 has exactly one `AccountDelete`. The offline side refuses any other shape.
-**Spec wording proposed** for §4.9 and §4.4.
+Folded into SPEC.md §4.9 and §4.4.
 
 ## A11: deleting a signer list is not possible (§3). Approved by owner.
 
@@ -149,17 +149,15 @@ The spare signer list is the only Recovery and Estate path once the master
 key is disabled. So no purpose can produce a signer-list deletion:
 `replace-spare` and `migration` only accept a quorum-1 template, and `sign`
 refuses `SignerListSet` (A9). The §3 typed-confirmation check stays in
-`safety.js` as a second line of defence. **Spec wording proposed** for §3:
-"Deleting a signer list is not supported."
+`safety.js` as a second line of defence. Folded into SPEC.md §3.
 
 ## A12: longer expiry window for migration (§5.3). Approved by owner.
 
 Migration involves writing spare seeds on paper and typing them back. So the
 `migration` envelope's `LastLedgerSequence` window defaults to about
 **3 hours**. Every other purpose stays at about 1 hour. Both stay
-configurable. The online builder applies this in Phase 3. **Spec wording
-proposed** for §5.3: "defaults to about 1 hour (about 3 hours for
-migration)."
+configurable. The online builder applies this in Phase 3. Folded into
+SPEC.md §5.3.
 
 ## Tooling. Decided by Claude.
 
