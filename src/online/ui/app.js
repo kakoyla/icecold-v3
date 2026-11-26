@@ -6,21 +6,29 @@ import { button, note, errorBox, okBox, warnBox, txCard } from '../../offline/ui
 import { ACCOUNT_SET_FLAGS, dropsToXrp, describeTx } from '../../offline/core/describe.js';
 import { frameEnvelope } from '../../offline/core/multipart.js';
 import { NETWORKS } from '../../offline/core/config.js';
-import { connect, connection, rpc } from './net.js';
+import { connect, connection, rpc, requireNetwork, Superseded } from './net.js';
 import { build } from '../core/builders.js';
 import { networkState, snapshot } from '../core/ledger.js';
 import { checkSigned, postChecks } from '../core/verify.js';
 import { submitAll } from '../core/submit.js';
 import { loadWatch, addWatch, removeWatch, clearWatch, containsSeed } from '../core/watch.js';
 import { estateLetter, SPARE_CARD_GROUPS } from '../core/letter.js';
+import { isValidAddress } from '../../offline/core/keys.js';
 
 const state = {
   network: 'testnet',
   built: null, // { purpose, env, notes, shared }
   signed: [], // check results, in envelope order
+  windowMinutes: null, // SPEC §5.3: null = default (about 60, or 180 for migration)
 };
 
 let screenEl;
+// Cleanups (camera, timers). A screen registers them while it is being built,
+// before show() attaches it; show() runs the previous screen's and keeps the
+// new one's for when it is left.
+let leaving = [];
+let pendingLeave = [];
+const onLeave = (fn) => pendingLeave.push(fn);
 let listCount = 0;
 let netEl;
 let statusEl;
@@ -34,6 +42,9 @@ function paintNetwork() {
 }
 
 function show(title, ...content) {
+  for (const fn of leaving) { try { fn(); } catch { /* keep going */ } }
+  leaving = pendingLeave;
+  pendingLeave = [];
   replace(screenEl, h('div', { class: 'screen-head' }, h('h2', { text: title }),
     title !== 'Home' ? button('Home', home, 'secondary') : null), ...content);
   window.scrollTo(0, 0);
@@ -46,9 +57,9 @@ async function switchNetwork(n) {
   paintNetwork();
   home();
   try {
-    await connect(n, (s) => { statusEl.textContent = s; });
+    await connect(n, (s) => { if (state.network === n) statusEl.textContent = s; });
   } catch (e) {
-    statusEl.textContent = String(e.message || e);
+    if (!(e instanceof Superseded)) statusEl.textContent = String(e.message || e);
   }
 }
 
@@ -117,15 +128,25 @@ function buildMenu() {
     ['Estate Transfer', estateForm, 'Move everything above the reserve to a destination, signed with the spare.'],
     ['Migration', migrationForm, 'One-time: give each kept account its own key and spare, close small accounts.'],
   ];
-  show('Build an envelope', ...flows.map(([t, fn, d]) => h('div', { class: 'card' }, button(t, fn, 'primary'), note(d))));
+  // SPEC §5.3: the expiry window is configurable.
+  const win = textInput({ placeholder: 'default', value: state.windowMinutes ? String(state.windowMinutes) : '' });
+  win.addEventListener('input', () => {
+    const n = Number(win.value);
+    state.windowMinutes = win.value.trim() && Number.isInteger(n) && n >= 10 && n <= 360 ? n : null;
+  });
+  show('Build an envelope',
+    h('div', { class: 'card' }, h('label', { class: 'field' },
+      h('span', { text: 'Expiry window in minutes (10-360). Empty = about 60, or 180 for Migration.' }), win)),
+    ...flows.map(([t, fn, d]) => h('div', { class: 'card' }, button(t, fn, 'primary'), note(d))));
 }
 
 async function runBuild(purpose, params, msg, btn) {
   replace(msg, note('Reading the ledger…'));
   btn.disabled = true;
   try {
-    if (!connection()) throw new Error('Not connected to a server.');
-    const r = await build(rpc, state.network, purpose, params);
+    requireNetwork(state.network);
+    const r = await build(rpc, state.network, purpose, { ...params, windowMinutes: state.windowMinutes });
+    requireNetwork(state.network);
     state.built = { purpose, env: r.env, notes: r.notes || [], acks: r.acks || [], shared: r.shared };
     state.signed = [];
     envelopeScreen();
@@ -190,8 +211,31 @@ function estateForm() {
 function migrationForm() {
   const rows = watched().map((w) => {
     const sel = h('select', {}, h('option', { value: '', text: 'not in this envelope' }), h('option', { value: 'kept', text: 'keep (new key + spare)' }), h('option', { value: 'small', text: 'close (AccountDelete)' }));
-    return { w, sel, el: h('tr', {}, h('td', { text: w.label }), h('td', { class: 'mono', text: w.address }), h('td', {}, sel)) };
+    const status = h('td', { class: 'note', text: 'checking…' });
+    return { w, sel, status, el: h('tr', {}, h('td', { text: w.label }), h('td', { class: 'mono', text: w.address }), status, h('td', {}, sel)) };
   });
+  // SPEC §5.4: list which accounts are still on the shared regular key.
+  (async () => {
+    try {
+      requireNetwork(state.network);
+      const st = await networkState(rpc);
+      const keys = {};
+      for (const r of rows) {
+        try { keys[r.w.address] = (await snapshot(rpc, r.w.address, st)).snap.regularKey; } catch (e) { keys[r.w.address] = e.code === 'not-found' ? 'not found' : '?'; }
+      }
+      const counts = {};
+      for (const k of Object.values(keys)) if (k && k.startsWith('r')) counts[k] = (counts[k] || 0) + 1;
+      const shared = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      for (const r of rows) {
+        const k = keys[r.w.address];
+        r.status.textContent = !k ? 'no regular key'
+          : !k.startsWith('r') ? k
+            : shared && shared[1] > 1 && k === shared[0] ? `shared key ${k.slice(0, 6)}…` : `own key ${k.slice(0, 6)}…`;
+      }
+    } catch (e) {
+      for (const r of rows) r.status.textContent = String(e.message || e);
+    }
+  })();
   const leftovers = h('select', {}, watched().map((w) => h('option', { value: w.address, text: `${w.label} (${w.address})` })));
   const msg = h('div');
   const btn = button('Check accounts and build', () => {
@@ -217,6 +261,7 @@ function envelopeScreen() {
   const label = h('p', { class: 'parts' });
   const draw = () => { replace(holder, qrCanvas(parts[i], { label: `envelope part ${i + 1}` })); replace(label, `Part ${i + 1} of ${parts.length}`); };
   const auto = h('input', { type: 'checkbox' });
+  onLeave(() => clearInterval(timer));
   auto.addEventListener('change', () => {
     clearInterval(timer);
     if (auto.checked) timer = setInterval(() => { i = (i + 1) % parts.length; draw(); }, 1500);
@@ -273,12 +318,14 @@ function submitScreen() {
     render();
     return state.signed.filter(Boolean).length === env.txs.length;
   }, { hint: 'Hold each signed QR code from the Offline Signer up to this camera.' });
+  onLeave(() => sc.stop());
   render();
   show('Submit signed transactions', sc.el, msg, list, action);
 
   async function doSubmit(where) {
     replace(where, note('Submitting… keep this page open until every transaction is validated.'));
     try {
+      requireNetwork(env.network);
       const results = await submitAll(rpc, purpose, state.signed.map((r) => ({ blob: r.blobHex, tx: r.tx })), {
         onProgress: (k, res) => where.append(h('p', { class: res.validated && res.code === 'tesSUCCESS' ? 'ok' : 'warn', text: `${k + 1}: ${res.message}${res.hash ? ` (${res.hash})` : ''}` })),
       });
@@ -288,9 +335,17 @@ function submitScreen() {
       for (const a of new Set(env.txs.map((t) => t.Account))) {
         try { snaps[a] = (await snapshot(rpc, a, st)).snap; } catch (e) { if (e.code === 'not-found') snaps[a] = null; else throw e; }
       }
-      const done = state.signed.filter((r, k) => results[k] && results[k].validated && results[k].code === 'tesSUCCESS');
+      const ok = (k) => results[k] && results[k].validated && results[k].code === 'tesSUCCESS';
+      const done = state.signed.filter((r, k) => ok(k));
       const problems = postChecks(purpose, done, snaps, { shared: state.built.shared });
-      where.append(problems.length ? errorBox(`Post-checks failed: ${problems.join('; ')}`) : okBox('All post-checks passed.'));
+      const failed = env.txs.map((t, k) => (ok(k) ? null : `${k + 1} (${describeTx(t, describeCtx()).title}): ${results[k] ? results[k].message : 'not submitted'}`)).filter(Boolean);
+      // Green only when every transaction succeeded and every check passed.
+      if (problems.length) where.append(errorBox(`Post-checks failed: ${problems.join('; ')}`));
+      if (failed.length) {
+        where.append(errorBox(`Not everything went through. ${failed.join(' | ')}`));
+        if (done.length && !problems.length) where.append(warnBox(`The ${done.length} transaction(s) that did succeed passed their post-checks.`));
+      }
+      if (!problems.length && !failed.length) where.append(okBox('All transactions succeeded. All post-checks passed.'));
     } catch (e) {
       where.append(errorBox(String(e.message || e)));
     }
@@ -337,6 +392,7 @@ function letterScreen() {
       h('label', { class: 'field' }, h('span', { text: 'Label' }), label),
       h('label', { class: 'field' }, h('span', { text: 'Belongs to' }), who),
       button('Make letter', () => {
+        if (!isValidAddress(addr.input.value.trim())) { replace(out, errorBox('That is not a valid XRPL address. Check it character by character.')); return; }
         const L = estateLetter({ address: addr.input.value.trim(), accountLabel: label.value || labelOf(addr.input.value.trim()), belongsTo: who.value, network: state.network, offlineSha256: __OFFLINE_SHA256__ });
         const sec = (s) => h('section', {},
           h('h3', { text: s.heading }),
