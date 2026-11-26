@@ -73,12 +73,17 @@ export function validatePayload(p, network) {
       throw new VaultError('schema', `${w}: retiredKeys must be a list of addresses`);
     }
     if (!Array.isArray(a.addressBook)) throw new VaultError('schema', `${w}: addressBook must be a list`);
+    // One entry per address, so an earlier entry can never hide a later
+    // entry's isExchange / requiresTag flag from the §4.8 tag check.
+    const book = new Set();
     a.addressBook.forEach((b, j) => {
       exactKeys(b, BOOK_FIELDS, `${w}.addressBook[${j}]`);
       if (typeof b.label !== 'string' || !isValidAddress(b.address) ||
           typeof b.isExchange !== 'boolean' || typeof b.requiresTag !== 'boolean') {
         throw new VaultError('schema', `${w}.addressBook[${j}]: bad entry`);
       }
+      if (book.has(b.address)) throw new VaultError('schema', `${w}.addressBook[${j}]: duplicate address`);
+      book.add(b.address);
     });
   });
   return p;
@@ -116,10 +121,18 @@ function checkKdf(kdf) {
   }
 }
 
-const passBytes = (pass) => enc.encode(String(pass).normalize('NFKC'));
+function normalizePass(pass) {
+  if (typeof pass !== 'string') throw new VaultError('passphrase', 'passphrase must be text');
+  return pass.normalize('NFKC');
+}
 
 async function deriveKey(pass, salt, kdf, onProgress) {
-  return scryptAsync(passBytes(pass), salt, { N: kdf.N, r: kdf.r, p: kdf.p, dkLen: kdf.dkLen, onProgress });
+  const pb = enc.encode(normalizePass(pass));
+  try {
+    return await scryptAsync(pb, salt, { N: kdf.N, r: kdf.r, p: kdf.p, dkLen: kdf.dkLen, onProgress });
+  } finally {
+    wipe(pb);
+  }
 }
 
 export function vaultFilename(network, date) {
@@ -133,7 +146,7 @@ export function vaultFilename(network, date) {
  */
 export async function encryptVault(payload, passphrase, opts = {}) {
   validatePayload(payload);
-  if (String(passphrase).length < MIN_PASSPHRASE_LENGTH) {
+  if ([...normalizePass(passphrase)].length < MIN_PASSPHRASE_LENGTH) {
     throw new VaultError('passphrase', `passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters`);
   }
   const kdf = { name: 'scrypt', ...VAULT_KDF_DEFAULT, ...(opts.kdf || {}), dkLen: 32 };
@@ -164,10 +177,23 @@ export function readHeader(text) {
   if (f.version !== VERSION) throw new VaultError('format', `unsupported vault version ${f.version}`);
   const allowed = [...HEADER_ORDER, 'ciphertext'];
   for (const k of Object.keys(f)) if (!allowed.includes(k)) throw new VaultError('format', `unexpected field "${k}"`);
+  for (const k of allowed) if (!(k in f)) throw new VaultError('format', `missing field "${k}"`);
   if (!NETWORKS.includes(f.network)) throw new VaultError('format', 'bad network');
-  checkKdf(f.kdf || {});
-  if (!f.cipher || f.cipher.name !== 'aes-256-gcm' || !/^[0-9a-f]{24}$/.test(f.cipher.nonce)) throw new VaultError('format', 'bad cipher');
-  if (!/^[0-9a-f]{32}$/.test(f.salt) || !/^[0-9a-f]+$/.test(f.ciphertext)) throw new VaultError('format', 'bad salt/ciphertext');
+  if (typeof f.createdAt !== 'string') throw new VaultError('format', 'bad createdAt');
+  // Nested objects must have exactly these keys: the associated data covers
+  // only them, so any extra key would be unauthenticated.
+  const exact = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) &&
+    Object.keys(o).length === keys.length && keys.every((k) => k in o);
+  if (!exact(f.kdf, ['name', 'N', 'r', 'p', 'dkLen'])) throw new VaultError('kdf', 'vault: bad KDF fields');
+  checkKdf(f.kdf);
+  if (!exact(f.cipher, ['name', 'nonce']) || f.cipher.name !== 'aes-256-gcm' || !/^[0-9a-f]{24}$/.test(f.cipher.nonce)) {
+    throw new VaultError('format', 'bad cipher');
+  }
+  // Ciphertext is whole bytes and at least the 16-byte GCM tag.
+  if (!/^[0-9a-f]{32}$/.test(f.salt) || typeof f.ciphertext !== 'string' ||
+      !/^(?:[0-9a-f]{2}){16,}$/.test(f.ciphertext)) {
+    throw new VaultError('format', 'bad salt/ciphertext');
+  }
   return f;
 }
 

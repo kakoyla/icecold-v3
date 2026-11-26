@@ -127,6 +127,42 @@ describe('vault', () => {
     await assert.rejects(Vt.encryptVault(samplePayload(), 'short', FAST), (e) => e.code === 'passphrase');
   });
 
+  test('a non-text passphrase is refused, even if it would stringify long', async () => {
+    await assert.rejects(Vt.encryptVault(samplePayload(), {}, FAST), (e) => e.code === 'passphrase');
+    const { text } = await Vt.encryptVault(samplePayload(), PASS, FAST);
+    await rejectsWith(Vt.decryptVault(text, 12345678901234, 'testnet'), 'passphrase');
+  });
+
+  test('passphrase length is counted after NFKC normalisation', async () => {
+    // 6 x "ﬃ" (U+FB03) normalises to "ffi": 6 characters before, 18 after.
+    await Vt.encryptVault(samplePayload(), '\uFB03'.repeat(6), FAST);
+    // 11 characters after normalisation is too short.
+    await assert.rejects(Vt.encryptVault(samplePayload(), 'a'.repeat(11), FAST), (e) => e.code === 'passphrase');
+  });
+
+  test('duplicate addresses in an address book are refused', () => {
+    const p = samplePayload();
+    const book = p.accounts[0].addressBook;
+    book.unshift({ label: 'Same address, no flags', address: book[0].address, isExchange: false, requiresTag: false });
+    assert.throws(() => Vt.validatePayload(p), (e) => e.code === 'schema' && /duplicate address/.test(e.message));
+  });
+
+  for (const [name, mutate, code] of [
+    ['odd-length ciphertext', (f) => { f.ciphertext = f.ciphertext.slice(0, -1); }, 'format'],
+    ['ciphertext shorter than the GCM tag', (f) => { f.ciphertext = 'ab'.repeat(15); }, 'format'],
+    ['missing createdAt', (f) => { delete f.createdAt; }, 'format'],
+    ['non-string createdAt', (f) => { f.createdAt = 0; }, 'format'],
+    ['extra field inside kdf', (f) => { f.kdf.extra = 1; }, 'kdf'],
+    ['extra field inside cipher', (f) => { f.cipher.extra = 1; }, 'format'],
+  ]) {
+    test(`header with ${name} is refused before decryption`, async () => {
+      const { text } = await Vt.encryptVault(samplePayload(), PASS, FAST);
+      const f = JSON.parse(text);
+      mutate(f);
+      assert.throws(() => Vt.readHeader(JSON.stringify(f)), (e) => e instanceof Vt.VaultError && e.code === code);
+    });
+  }
+
   test('KDF parameters outside the allowed range are refused', async () => {
     await assert.rejects(Vt.encryptVault(samplePayload(), PASS, { kdf: { N: 2 ** 10 } }), (e) => e.code === 'kdf');
   });

@@ -100,10 +100,13 @@ mirrors this: an estate Payment with no tag needs an explicit acknowledgement.
 ## A8: vault details the spec leaves open (§4.2). Decided by Claude.
 
 - **Minimum passphrase length:** 12 characters, enforced when a vault is
-  saved. Passphrases are Unicode-normalised (NFKC) before scrypt.
+  saved. Passphrases must be text and are Unicode-normalised (NFKC) before
+  scrypt. The length is counted after normalisation.
 - **Address book:** stored per account, as §4.2 lists it under "per account".
   Each entry has a label, an address, and the flags `isExchange` and
   `requiresTag` (used by the §4.8 destination-tag check).
+- **Address book:** each address appears at most once per account, so an
+  earlier entry can't hide a later entry's exchange or tag flag.
 - **Schema:** the vault payload has a strict schema. Any unexpected field is
   refused, and any field whose name contains "spare" is refused with a
   specific error. On every open, each stored seed must re-derive its stored
