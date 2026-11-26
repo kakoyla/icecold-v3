@@ -79,6 +79,21 @@ describe('§4.8 payment', () => {
   test('Destination equal to Account fails', () => failsWith(W.payment({ Destination: W.personal.address }), 'payment-self'));
   test('invalid Destination fails', () => failsWith(W.payment({ Destination: 'rNotAnAddress' }), 'destination'));
   test('other Payment flags need an ack', () => needsAck(W.payment({ Flags: 0x00010000 }), 'unknown-flags'));
+  test('unknown flags on SetRegularKey need an ack', () => needsAck(
+    W.base(W.personal.address, { TransactionType: 'SetRegularKey', RegularKey: W.reg.managed.address, Flags: 0x1 }), 'unknown-flags'));
+  test('AccountSet legacy flag (tfRequireDestTag) needs an ack', () => needsAck(
+    W.base(W.personal.address, { TransactionType: 'AccountSet', Flags: 0x00010000 }), 'unknown-flags'));
+  test('tfFullyCanonicalSig alone needs no ack on any type', () => passes(
+    W.base(W.personal.address, { TransactionType: 'AccountSet', SetFlag: 8, Flags: 0x80000000 })));
+  for (const [f, v] of [['ClearFlag', 4], ['SetFlag', 6], ['SetFlag', 16]]) {
+    test(`AccountSet ${f} ${v} needs an ack`, () => needsAck(
+      W.base(W.personal.address, { TransactionType: 'AccountSet', [f]: v }), 'accountset-risky'));
+  }
+  test('AccountSet NFTokenMinter needs an unknown-field ack (out of scope)', () => needsAck(
+    W.base(W.personal.address, { TransactionType: 'AccountSet', NFTokenMinter: W.friend.address }), 'unknown-field'));
+  test('AccountDelete to an exchange without a tag fails', () => failsWith(
+    W.base(W.friend.address, { TransactionType: 'AccountDelete', Destination: W.exchange.address, Fee: '200000' }),
+    'dest-tag-required', ctx({ vaultAddresses: [W.exchange.address] })));
 });
 
 describe('§4.8 destination tags', () => {
@@ -147,7 +162,8 @@ describe('§3 types and signer lists', () => {
     SignerEntries: [{ SignerEntry: { Account: W.spare.personal.address, SignerWeight: 1 } }],
   }), 'signer-quorum'));
   test('AccountDelete to a non-vault destination needs an explicit override', () => needsAck(
-    W.base(W.friend.address, { TransactionType: 'AccountDelete', Destination: W.exchange.address, Fee: OWNER_RESERVE }), 'accountdelete-destination'));
+    W.base(W.friend.address, { TransactionType: 'AccountDelete', Destination: W.managed.address, Fee: OWNER_RESERVE }), 'accountdelete-destination',
+    ctx({ vaultAddresses: [W.personal.address] })));
   test('single-signed input carrying SigningPubKey fails', () => failsWith(W.payment({ SigningPubKey: 'ED00' }), 'signing-pubkey'));
   test('multisigned input without empty SigningPubKey fails', () => failsWith(W.payment({ Fee: '2000' }), 'signing-pubkey', ctx({ multisigned: true })));
 });

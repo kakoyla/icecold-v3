@@ -65,11 +65,20 @@ and burn the account's balance as the fee.
   | `Payment` | `Amount`, `Destination`, `DestinationTag` |
   | `SetRegularKey` | `RegularKey` |
   | `SignerListSet` | `SignerQuorum`, `SignerEntries` |
-  | `AccountSet` | `SetFlag`, `ClearFlag`, `Domain`, `EmailHash`, `MessageKey`, `TransferRate`, `TickSize`, `NFTokenMinter` |
+  | `AccountSet` | `SetFlag`, `ClearFlag`, `Domain`, `EmailHash`, `MessageKey`, `TransferRate`, `TickSize` |
   | `AccountDelete` | `Destination`, `DestinationTag` |
 
-- Any other field, including `Memos` and `TicketSequence`, blocks signing until
-  the user acknowledges it.
+- Any other field, including `Memos`, `TicketSequence` and `NFTokenMinter`
+  (NFTs are out of scope, §8), blocks signing until the user acknowledges it.
+- **Flags:** on every type, any bit other than `tfFullyCanonicalSig` needs an
+  acknowledgement. This covers AccountSet's legacy flags such as
+  `tfRequireDestTag`, which change settings without `SetFlag`.
+- **Risky AccountSet settings** each need an acknowledgement:
+  - `ClearFlag 4` re-enables the master key
+  - `SetFlag 6` (NoFreeze) is permanent
+  - `SetFlag 16` (AllowTrustLineClawback) is permanent
+- **AccountDelete** follows the same destination-tag rule as Payment: an
+  exchange or tag-required destination with no tag is refused.
 - Refused outright, with no acknowledgement possible:
   - `Paths`, `SendMax` and `DeliverMin` (§3)
   - `DeliverMax` (an alias of `Amount`)

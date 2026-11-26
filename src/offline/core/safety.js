@@ -20,7 +20,8 @@ const TYPE_FIELDS = {
   Payment: ['Amount', 'Destination', 'DestinationTag'],
   SetRegularKey: ['RegularKey'],
   SignerListSet: ['SignerQuorum', 'SignerEntries'],
-  AccountSet: ['SetFlag', 'ClearFlag', 'Domain', 'EmailHash', 'MessageKey', 'TransferRate', 'TickSize', 'NFTokenMinter'],
+  // NFTokenMinter is left out: NFTs are out of scope (SPEC §8), so it needs an ack.
+  AccountSet: ['SetFlag', 'ClearFlag', 'Domain', 'EmailHash', 'MessageKey', 'TransferRate', 'TickSize'],
   AccountDelete: ['Destination', 'DestinationTag'],
 };
 // Refused outright, whatever the user says.
@@ -33,6 +34,14 @@ const FORBIDDEN_FIELDS = {
   TxnSignature: 'input must be unsigned',
   Signers: 'input must be unsigned',
 };
+
+// AccountSet settings that are permanent or undo a safety setting (SPEC §2:
+// the master key stays disabled). Each needs its own acknowledgement.
+const RISKY_ACCOUNTSET = [
+  { field: 'ClearFlag', value: 4, message: 'ClearFlag asfDisableMaster RE-ENABLES the master key' },
+  { field: 'SetFlag', value: 6, message: 'SetFlag asfNoFreeze is permanent and cannot be undone' },
+  { field: 'SetFlag', value: 16, message: 'SetFlag asfAllowTrustLineClawback is permanent and cannot be undone' },
+];
 
 const isUInt32 = (n) => Number.isInteger(n) && n >= 0 && n <= 0xffffffff;
 const isDrops = (s) => typeof s === 'string' && DROPS_RE.test(s) && BigInt(s) <= MAX_DROPS;
@@ -105,14 +114,17 @@ export function checkTransaction(tx, ctx = {}) {
     else if (BigInt(tx.Fee) > cap) err('fee-over-cap', `Fee ${tx.Fee} drops is over the cap of ${cap} drops`, 'Fee');
   }
 
-  const flags = tx.Flags || 0;
+  // Flags: tfFullyCanonicalSig is harmless; tfPartialPayment is refused on
+  // Payment below. Any other bit (including AccountSet's legacy flags such as
+  // tfRequireDestTag) changes behaviour, so it needs an acknowledgement.
+  const flags = isUInt32(tx.Flags) ? tx.Flags : 0;
+  const otherFlags = (flags & ~TF_FULLY_CANONICAL_SIG & ~(type === 'Payment' ? TF_PARTIAL_PAYMENT : 0)) >>> 0;
+  if (otherFlags !== 0) ack('unknown-flags', `unrecognised ${type} flags 0x${otherFlags.toString(16)}`, { field: 'Flags' });
 
   if (type === 'Payment') {
     if (typeof tx.Amount !== 'string') err('payment-not-xrp', 'Amount must be XRP in drops (a string)', 'Amount');
     else if (!isDrops(tx.Amount) || BigInt(tx.Amount) === 0n) err('payment-amount', 'Amount must be a positive drops value', 'Amount');
     if ((flags & TF_PARTIAL_PAYMENT) !== 0) err('payment-partial', 'partial payments (tfPartialPayment) are not allowed', 'Flags');
-    const otherFlags = (flags & ~TF_PARTIAL_PAYMENT & ~TF_FULLY_CANONICAL_SIG) >>> 0;
-    if (otherFlags !== 0) ack('unknown-flags', `unrecognised Payment flags 0x${otherFlags.toString(16)}`, { field: 'Flags' });
     if (!isValidAddress(tx.Destination)) err('destination', 'Destination is missing or invalid', 'Destination');
     else if (tx.Destination === tx.Account) err('payment-self', 'Destination must differ from Account', 'Destination');
     checkDestinationTag(tx, ctx, err, ack);
@@ -153,12 +165,15 @@ export function checkTransaction(tx, ctx = {}) {
     else if (!(ctx.vaultAddresses || []).includes(tx.Destination)) {
       ack('accountdelete-destination', `Destination ${tx.Destination} is not a vault account`, { field: 'Destination' });
     }
-    if (tx.DestinationTag !== undefined && !isUInt32(tx.DestinationTag)) err('destination-tag', 'DestinationTag must be a 32-bit unsigned integer', 'DestinationTag');
+    checkDestinationTag(tx, ctx, err, ack);
   }
 
   if (type === 'AccountSet') {
     for (const f of ['SetFlag', 'ClearFlag', 'TransferRate', 'TickSize']) {
       if (tx[f] !== undefined && !isUInt32(tx[f])) err('accountset-field', `${f} must be an integer`, f);
+    }
+    for (const r of RISKY_ACCOUNTSET) {
+      if (tx[r.field] === r.value) ack('accountset-risky', r.message, { field: r.field });
     }
   }
 
