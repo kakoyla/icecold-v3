@@ -316,6 +316,12 @@ in offline. So each scanned blob is checked like this:
 - The filled-in key or spare address is kept for the post-checks.
 - After submitting, the validated transaction must have the hash computed
   from the blob.
+- **Submission order:**
+  - Send & Rotate submits the key change only if the payment used up its
+    sequence (`tesSUCCESS` or `tec`, §5.5).
+  - Migration submits an account's `SetRegularKey` only if its
+    `SignerListSet` was `tesSUCCESS`. A `tec` would use up the sequence, and
+    the key change would then land with no spare.
 - **Post-checks:**
   - After a rotation or recovery, the ledger's `RegularKey` equals the new key.
   - After Replace Spare, the signer list holds the new spare.
