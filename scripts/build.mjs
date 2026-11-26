@@ -83,10 +83,32 @@ const online = (servers, out) => buildPage({
   // A25: the estate letter quotes the offline file's SHA-256.
   define: { __OFFLINE_SHA256__: JSON.stringify(offlineHash), __TEST_SERVERS__: JSON.stringify(servers === SERVERS ? null : servers) },
 });
+// Index page for GitHub Pages: links and SHA-256 of both builds. Static
+// text only; same CSP rules (no script at all).
+function writeIndex(onlineHash) {
+  const css = 'body{font-family:system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;line-height:1.5}code{word-break:break-all}';
+  const csp = `default-src 'none'; style-src 'sha256-${b64(css)}'; base-uri 'none'; form-action 'none'`;
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICE COLD v3</title><style>${css}</style></head><body>
+<h1>ICE COLD v3 ${pkg.version}</h1>
+<p><a href="icecold-v3-online.html">Online Builder</a>: use on a normal computer. It never asks for a secret key.<br>
+SHA-256: <code>${onlineHash}</code></p>
+<p><a href="icecold-v3-offline.html" download>Offline Signer</a>: download it, copy it to a laptop, turn Wi-Fi off, then check its SHA-256 before opening it.<br>
+SHA-256: <code>${offlineHash}</code></p>
+<p>Check a downloaded file: <code>sha256sum icecold-v3-offline.html</code> (Linux), <code>shasum -a 256 icecold-v3-offline.html</code> (macOS), <code>certutil -hashfile icecold-v3-offline.html SHA256</code> (Windows). Compare every character with your paper log.</p>
+<p>Source: <a href="https://github.com/kakoyla/icecold-v3">github.com/kakoyla/icecold-v3</a></p>
+</body></html>
+`;
+  writeFileSync(resolve(root, 'dist/index.html'), html);
+}
+
 if (testIdx >= 0) {
   const url = process.argv[testIdx + 1];
   if (!/^ws:\/\/127\.0\.0\.1:\d+$/.test(url || '')) throw new Error('--online-test needs ws://127.0.0.1:PORT');
   await online({ mainnet: [url], testnet: [url] }, ONLINE_TEST_OUT_FILE);
 } else {
-  await online(SERVERS, ONLINE_OUT_FILE);
+  writeIndex(await online(SERVERS, ONLINE_OUT_FILE));
 }

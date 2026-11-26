@@ -362,6 +362,18 @@ blocks deletion until all of these hold:
   build time. Names and the spare's location are typed at print time, or left
   blank to write by hand, and are never stored.
 
+## A26: how the Online Builder is tested (§7.1). Decided by Claude.
+
+- **No network in `npm test`.** A fake ledger (`test/online/mockLedger.js`)
+  answers the rippled commands, applies submitted transactions, and checks
+  signatures and authorisation. Browser tests use a test copy of the page
+  (`dist-test/`, never published) pointed at it.
+- **Round trips** in Chromium and Firefox: build online, sign in the offline
+  page, submit, post-check. They cover Send & Rotate, Migration and Recovery.
+- **`npm run test:testnet`** runs the real builders, the offline signing core
+  and the submit code against the live Testnet, using faucet accounts. It's
+  optional and run by hand.
+
 ## Tooling. Decided by Claude.
 
 - **Build:** esbuild directly, not Vite. One small dependency, deterministic

@@ -1,0 +1,46 @@
+# GitHub Pages for the two builds (DECISIONS A20). Manual only: it runs when
+# someone presses "Run workflow", never on push. Pages must also be enabled in
+# the repository settings; the owner decides when.
+name: Publish to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      # Actions are pinned to exact commits, not tags.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm run build
+      - name: Show the SHA-256 of each file (compare with the release notes)
+        run: |
+          cd dist
+          sha256sum -c icecold-v3-offline.html.sha256 icecold-v3-online.html.sha256
+          cat icecold-v3-offline.html.sha256 icecold-v3-online.html.sha256
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

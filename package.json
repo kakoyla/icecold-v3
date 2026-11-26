@@ -12,7 +12,8 @@
     "build": "node scripts/build.mjs",
     "test": "npm run build && node --test --test-concurrency=1 test/unit/ test/online/ test/e2e/",
     "test:unit": "node --test test/unit/ test/online/",
-    "test:e2e": "npm run build && node --test test/e2e/"
+    "test:e2e": "npm run build && node --test test/e2e/",
+    "test:testnet": "node scripts/testnet-check.mjs"
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",

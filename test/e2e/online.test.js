@@ -15,6 +15,7 @@ import { generateKey } from '../../src/offline/core/keys.js';
 import { ONLINE_TEST_OUT_FILE, ONLINE_OUT_FILE, OUT_FILE } from '../../build.config.js';
 import {
   FAKE_CAMERA, PAGE_URL, showQrs, vaultFile, openVault, passphraseAndClick, signedBlobs, captureDownload, clickButton,
+  readSpareCard, typeSeed, PASS,
 } from './harness.js';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -64,8 +65,12 @@ for (const name of ENGINES) {
     });
     after(async () => { await browser?.close(); });
 
+    async function goHome() {
+      const b = online.locator('.screen-head button', { hasText: 'Home' });
+      if (await b.count()) await b.first().click();
+    }
     async function watch(label, address) {
-      await clickButton(online, 'Home');
+      await goHome();
       await clickButton(online, 'Watched accounts');
       await online.fill('input[placeholder^="Label, e.g."]', label);
       await online.fill('input[placeholder="r…"]', address);
@@ -90,7 +95,7 @@ for (const name of ENGINES) {
       await watch('Friend', W.friend.address);
 
       // 1. Build on the online page.
-      await clickButton(online, 'Home');
+      await goHome();
       await clickButton(online, 'Build an envelope');
       await online.locator('button', { hasText: 'Send & Rotate' }).first().click();
       await online.fill('input[placeholder="From account (r…)"]', W.personal.address);
@@ -126,11 +131,93 @@ for (const name of ENGINES) {
       assert.deepEqual(errors, []);
     });
 
+    async function offlineScan(parts) {
+      await offline.goto(PAGE_URL);
+      await offline.waitForFunction(() => window.__icecoldStatus !== undefined);
+      await clickButton(offline, 'Scan an envelope');
+      await offline.waitForSelector('.scan-status:has-text("Scanning")');
+      await showQrs(offline, parts);
+    }
+    async function onlineSubmit(blobs) {
+      await clickButton(online, 'Next: scan the signed QR codes');
+      await online.waitForSelector('.scan-status:has-text("Scanning")');
+      await showQrs(online, blobs);
+      await clickButton(online, 'Submit to the ledger');
+      await online.waitForSelector('.ok-box:has-text("All post-checks passed"), .error-box:has-text("Post-checks failed")', { timeout: 60000 });
+      return online.textContent('#screen');
+    }
+
+    test('Migration round trip: one kept and one small account; post-checks pass', async () => {
+      const shared = generateKey();
+      const kept = generateKey();
+      const small = generateKey();
+      ledger.addAccount(kept.address, { regularKey: shared.address, balance: '80000000' });
+      ledger.addAccount(small.address, { regularKey: shared.address, balance: '25000000', sequence: 3 });
+      await watch('Kept', kept.address);
+      await watch('Small', small.address);
+      await goHome();
+      await clickButton(online, 'Build an envelope');
+      await online.locator('button', { hasText: 'Migration' }).click();
+      await online.locator('tr', { hasText: kept.address }).locator('select').selectOption('kept');
+      await online.locator('tr', { hasText: small.address }).locator('select').selectOption('small');
+      await online.locator('label:has-text("Leftovers") select').selectOption(kept.address);
+      await clickButton(online, 'Check accounts and build');
+      await online.waitForSelector('h2:has-text("Envelope ready")');
+      const parts = await readEnvelopeParts(online);
+
+      await offlineScan(parts);
+      await clickButton(offline, 'TESTNET');
+      await typeSeed(offline, shared.seed, 'Use this key');
+      await offline.locator('input[placeholder^="Label for"]').fill('Kept');
+      await clickButton(offline, 'Make the new key and spare');
+      const spare = await readSpareCard(offline);
+      await clickButton(offline, 'I have written it down');
+      await typeSeed(offline, spare, 'Check');
+      await offline.locator('input[placeholder^="At least"]').fill(PASS);
+      await offline.locator('input[placeholder="Type it again"]').fill(PASS);
+      const dl = await captureDownload(offline, () => clickButton(offline, 'Create vault with the new keys'));
+      await offline.locator('.gate input[type=file]').setInputFiles(dl.path);
+      const blobs = await signedBlobs(offline);
+      assert.equal(blobs.length, 3);
+
+      const text = await onlineSubmit(blobs);
+      assert.match(text, /All post-checks passed/);
+      const k = ledger.accounts.get(kept.address);
+      assert.equal(k.RegularKey, xrpl.decode(blobs[1]).RegularKey);
+      assert.notEqual(k.RegularKey, shared.address);
+      assert.equal(k.signerList.SignerEntries[0].SignerEntry.Account, xrpl.decode(blobs[0]).SignerEntries[0].SignerEntry.Account);
+      assert.equal(ledger.accounts.has(small.address), false, 'the small account was deleted');
+    });
+
+    test('Recovery round trip: the spare sets a new key; post-check passes', async () => {
+      const W = makeWorld('testnet');
+      const lost = generateKey();
+      ledger.addAccount(W.personal.address, { regularKey: lost.address, spare: W.spare.personal.address });
+      await goHome();
+      await clickButton(online, 'Build an envelope');
+      await online.locator('button', { hasText: 'Recovery' }).click();
+      await online.fill('input[placeholder="Account (r…)"]', W.personal.address);
+      await clickButton(online, 'Build envelope');
+      await online.waitForSelector('h2:has-text("Envelope ready")');
+      await offlineScan(await readEnvelopeParts(online));
+      await clickButton(offline, 'TESTNET');
+      await typeSeed(offline, W.spare.personal.seed, 'Check spare');
+      await offline.locator('input[placeholder^="Account label"]').fill('Personal');
+      await offline.locator('input[placeholder^="At least"]').fill(PASS);
+      await offline.locator('input[placeholder="Type it again"]').fill(PASS);
+      const dl = await captureDownload(offline, () => clickButton(offline, 'Make new key, create vault'));
+      await offline.locator('.gate input[type=file]').setInputFiles(dl.path);
+      const [blob] = await signedBlobs(offline);
+      const text = await onlineSubmit([blob]);
+      assert.match(text, /All post-checks passed/);
+      assert.equal(ledger.accounts.get(W.personal.address).RegularKey, xrpl.decode(blob).RegularKey);
+    });
+
     test('a signed code that differs from what was built is refused', async () => {
       const W = makeWorld('testnet');
       ledger.addAccount(W.personal.address, { regularKey: W.reg.personal.address, spare: W.spare.personal.address });
       await watch('P2', W.personal.address);
-      await clickButton(online, 'Home');
+      await goHome();
       await clickButton(online, 'Build an envelope');
       await online.locator('button', { hasText: 'Rotate key' }).click();
       await online.fill('input[placeholder="Account (r…)"]', W.personal.address);
@@ -151,7 +238,7 @@ for (const name of ENGINES) {
       const W = makeWorld('testnet');
       ledger.addAccount(W.managed.address, { regularKey: W.reg.managed.address, spare: W.spare.managed.address, balance: '30000000' });
       ledger.addAccount(W.exchange.address, { flags: 0 });
-      await clickButton(online, 'Home');
+      await goHome();
       await clickButton(online, 'Build an envelope');
       await online.locator('button', { hasText: 'Estate Transfer' }).click();
       await online.fill('input[placeholder^="The account to transfer"]', W.managed.address);
@@ -167,13 +254,13 @@ for (const name of ENGINES) {
     });
 
     test('print: the blank card has 31 boxes; the letter has the offline hash and no secret', async () => {
-      await clickButton(online, 'Home');
+      await goHome();
       await clickButton(online, 'Print');
       await clickButton(online, 'Blank Spare Key Card');
       await online.fill('input[placeholder^="Account label"]', 'Managed');
       await clickButton(online, 'Make card');
       assert.equal(await online.locator('.spare-blank .box').count(), 31);
-      await clickButton(online, 'Home');
+      await goHome();
       await clickButton(online, 'Print');
       await clickButton(online, 'Estate letter');
       await online.fill('input[placeholder="Account address (r…)"]', generateKey().address);
@@ -185,7 +272,7 @@ for (const name of ENGINES) {
     });
 
     test('the watch list is per network and can be cleared', async () => {
-      await clickButton(online, 'Home');
+      await goHome();
       const before = await online.evaluate(() => Object.keys(localStorage));
       assert.ok(before.every((k) => k === 'icecold-watch-v1-testnet'));
       await clickButton(online, 'MAINNET');
