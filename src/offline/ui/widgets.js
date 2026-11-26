@@ -209,7 +209,7 @@ export function savedVaultGate({ filename, passphrase, network, expected, onPass
  * Type a seed; Seed Repair (A13) runs if the checksum fails.
  * onKey(key) receives the derived key (the caller owns and wipes it).
  */
-export function seedEntry(onKey, { label = 'Seed', signerAddresses = [], confirmLabel = 'Use this seed' } = {}) {
+export function seedEntry(onKey, { label = 'Seed', signerAddresses = [], confirmLabel = 'Use this seed', repair = true } = {}) {
   const input = secretInput({ placeholder: 's…', class: 'secret seed-input' });
   input.type = 'text';
   input.dataset.seed = '1';
@@ -228,8 +228,16 @@ export function seedEntry(onKey, { label = 'Seed', signerAddresses = [], confirm
     const s = input.value.trim();
     if (isValidSeed(s)) { use(s); return; }
     const bad = invalidPositions(s);
-    const r = repairSeed(s, signerAddresses);
     const list = h('div', { class: 'candidates', attrs: { 'data-seed': '1' } });
+    if (!repair) {
+      // Checking a freshly written card: no repair, so a mistake on the
+      // paper can't be "fixed" on screen while the card keeps it.
+      if (bad.length) list.append(warnBox(`Characters that are never in a seed: ${bad.map((i) => `position ${i + 1} ("${s[i]}")`).join(', ')}.`));
+      list.append(errorBox('That does not pass the checksum. Compare the card with the spare, fix the card if needed, and type it again exactly as written.'));
+      replace(out, list);
+      return;
+    }
+    const r = repairSeed(s, signerAddresses);
     if (bad.length) list.append(warnBox(`Characters that are never in a seed: ${bad.map((i) => `position ${i + 1} ("${s[i]}")`).join(', ')}. Seeds never contain 0, O, I or l.`));
     if (r.candidates.length === 0) {
       list.append(errorBox('The checksum failed and no single-character fix was found. Check the paper and type it again.'));
@@ -276,24 +284,69 @@ export function spareCardDisplay(key, { label, onWritten }) {
 }
 
 /**
- * Acknowledgements (SPEC §4.8). Returns { el, given, ok() }. Plain acks are
- * tick boxes; phrase acks need the exact phrase typed.
+ * Acknowledgements (SPEC §4.8), one list per transaction, so the same warning
+ * on two transactions needs two answers (Gemini Phase 2 review).
+ * Returns { el, ok(), givenFor(i) } where givenFor(i) is the Map for
+ * transaction i, keyed like checkTransaction's acks.
  */
-export function ackPanel(acks, onChange = () => {}) {
-  const given = new Map();
-  if (!acks.length) return { el: h('div'), given, ok: () => true };
-  const rows = acks.map((a) => {
+export function ackPanel(perTx) {
+  const lists = perTx.map((acks, i) => acks.map((a) => ({ ...a, tx: i })));
+  const all = lists.flat();
+  const given = perTx.map(() => new Map());
+  const givenFor = (i) => given[i] || new Map();
+  if (!all.length) return { el: h('div'), ok: () => true, givenFor };
+  const prefix = (a) => (perTx.length > 1 ? `Transaction ${a.tx + 1}: ` : '');
+  const rows = all.map((a) => {
     if (a.phrase) {
       const inp = textInput({ placeholder: a.phrase });
-      inp.addEventListener('input', () => { given.set(a.key, inp.value); onChange(); });
-      return h('div', { class: 'ack' }, h('p', { class: 'warn', text: a.message }), h('label', { class: 'field' }, h('span', { text: `Type ${a.phrase} to continue` }), inp));
+      inp.addEventListener('input', () => given[a.tx].set(a.key, inp.value));
+      return h('div', { class: 'ack' }, h('p', { class: 'warn', text: `${prefix(a)}${a.message}` }), h('label', { class: 'field' }, h('span', { text: `Type ${a.phrase} to continue` }), inp));
     }
     const cb = h('input', { type: 'checkbox' });
-    cb.addEventListener('change', () => { given.set(a.key, cb.checked); onChange(); });
-    return h('label', { class: 'ack check' }, cb, h('span', { class: 'warn', text: ` I understand: ${a.message}` }));
+    cb.addEventListener('change', () => given[a.tx].set(a.key, cb.checked));
+    return h('label', { class: 'ack check' }, cb, h('span', { class: 'warn', text: ` I understand: ${prefix(a)}${a.message}` }));
   });
   const el = h('div', { class: 'card acks' }, h('h3', { text: 'Check these before signing' }), rows);
-  return { el, given, ok: () => acks.every((a) => (a.phrase ? given.get(a.key) === a.phrase : given.get(a.key) === true)) };
+  const ok = () => all.every((a) => (a.phrase ? given[a.tx].get(a.key) === a.phrase : given[a.tx].get(a.key) === true));
+  return { el, ok, givenFor };
+}
+
+/**
+ * SPEC §4.4 step 3: a destination not in the address book needs an extra
+ * confirmation, and may be added. Returns null when not needed, else
+ * { el, entry() } where entry() throws if unconfirmed and returns the new
+ * address-book entry or null.
+ */
+export function firstTimeDestination(tx, isFirstTime) {
+  if (!isFirstTime) return null;
+  const cb = h('input', { type: 'checkbox' });
+  const add = h('input', { type: 'checkbox' });
+  const label = textInput({ placeholder: 'Label, e.g. Exchange deposit' });
+  const ex = h('input', { type: 'checkbox' });
+  const tag = h('input', { type: 'checkbox' });
+  const el = h('div', { class: 'card first-time' },
+    h('h3', { text: 'New destination' }),
+    h('p', {}, 'You have not sent to ', h('strong', { class: 'mono', text: tx.Destination }), ' from this account before.'),
+    h('label', { class: 'check' }, cb, ' I have checked this address character by character against a trusted source.'),
+    h('label', { class: 'check' }, add, ' Add it to the address book'),
+    h('div', { class: 'row' }, label, h('label', { class: 'check' }, ex, ' exchange'), h('label', { class: 'check' }, tag, ' needs a destination tag')));
+  const entry = () => {
+    if (!cb.checked) throw new Error('Confirm the new destination first.');
+    if (!add.checked) return null;
+    const e = { label: label.value.trim(), address: tx.Destination, isExchange: ex.checked, requiresTag: tag.checked };
+    if (!e.label) throw new Error('Give the new destination a label, or untick "Add it to the address book".');
+    if ((e.isExchange || e.requiresTag) && tx.DestinationTag === undefined) {
+      throw new Error('This destination needs a destination tag, but the transaction has none. Nothing was signed; build a new envelope with the tag.');
+    }
+    return e;
+  };
+  return { el, entry };
+}
+
+/** Payload with `entry` added to `address`'s address book. */
+export function withBookEntry(payload, address, entry) {
+  if (!entry) return payload;
+  return { ...payload, accounts: payload.accounts.map((a) => (a.address === address ? { ...a, addressBook: [...a.addressBook, entry] } : a)) };
 }
 
 /** Summary card and every raw field for one transaction (SPEC §4.4 step 3). */

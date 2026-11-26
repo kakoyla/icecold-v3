@@ -24,7 +24,7 @@ function start(env, confirmedNetwork) {
   const acct = tx.Account;
   const signers = (env.ledger[acct].signerList?.entries || []).map((e) => e.account);
   const d = describeTx(tx, {});
-  const ackUi = ackPanel(acks);
+  const ackUi = ackPanel([acks]);
   const msg = h('div');
   let spare = null;
   onWipe(() => { if (spare) wipeKey(spare); spare = null; });
@@ -53,7 +53,7 @@ function start(env, confirmedNetwork) {
       if (!spareInSignerList(env, acct, spare.address)) {
         throw new Error(`This spare (${spare.address}) is not in the signer list of ${acct}. Nothing was signed. Check that this is the right paper for this account.`);
       }
-      finalCheck(tx, { multisigned: true, ownerReserveDrops: env.ownerReserveDrops, requireTag: true }, ackUi.given);
+      finalCheck(tx, { multisigned: true, ownerReserveDrops: env.ownerReserveDrops, requireTag: true }, ackUi.givenFor(0));
       const signed = multisignTx(tx, spare);
       assertVerified([signed]);
       wipeKey(spare);

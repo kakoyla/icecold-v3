@@ -4,9 +4,8 @@ import { h, replace } from '../dom.js';
 import { session } from '../session.js';
 import { keyFromSeed, signTx, wipeKey } from '../../core/keys.js';
 import { describeTx } from '../../core/describe.js';
-import { button, errorBox, note, txCard, ackPanel, passphraseStep, saveVault, signedOutput, warnBox } from '../widgets.js';
+import { errorBox, note, txCard, ackPanel, passphraseStep, saveVault, signedOutput, warnBox, firstTimeDestination, withBookEntry } from '../widgets.js';
 import { show, setNetwork } from '../app.js';
-import { textInput } from '../dom.js';
 import {
   prepare, ctxFor, showRefused, blockedByPending, resolutionNotes, expiryNote, finalCheck, assertVerified, doneButton,
 } from './common.js';
@@ -23,42 +22,18 @@ export function signFlow(env) {
   const d = describeTx(tx, ctx);
   const msg = h('div');
 
-  // SPEC §4.4 step 3: first-time destinations get an extra confirmation, and
-  // may be added to the address book.
-  let firstTime = null;
-  if (d.firstTimeDestination) {
-    const cb = h('input', { type: 'checkbox' });
-    const add = h('input', { type: 'checkbox' });
-    const label = textInput({ placeholder: 'Label, e.g. Exchange deposit' });
-    const ex = h('input', { type: 'checkbox' });
-    const tag = h('input', { type: 'checkbox' });
-    firstTime = { cb, add, label, ex, tag };
-    firstTime.el = h('div', { class: 'card first-time' },
-      h('h3', { text: 'New destination' }),
-      h('p', {}, 'You have not sent to ', h('strong', { class: 'mono', text: tx.Destination }), ' from this account before.'),
-      h('label', { class: 'check' }, cb, ' I have checked this address character by character against a trusted source.'),
-      h('label', { class: 'check' }, add, ' Add it to the address book'),
-      h('div', { class: 'row' }, label, h('label', { class: 'check' }, ex, ' exchange'), h('label', { class: 'check' }, tag, ' needs a destination tag')));
-  }
+  // SPEC §4.4 step 3: first-time destinations get an extra confirmation.
+  const firstTime = firstTimeDestination(tx, d.firstTimeDestination);
 
-  const ackUi = ackPanel(acks);
+  const ackUi = ackPanel([acks]);
   const step = passphraseStep(async (pass, { progress }) => {
     let key = null;
     try {
-      if (firstTime && !firstTime.cb.checked) throw new Error('Confirm the new destination first.');
+      const entry = firstTime ? firstTime.entry() : null;
       if (!ackUi.ok()) throw new Error('Tick or type every item under "Check these before signing" first.');
-      let next = payload;
-      let bookAdded = false;
-      if (firstTime && firstTime.add.checked) {
-        const entry = { label: firstTime.label.value.trim(), address: tx.Destination, isExchange: firstTime.ex.checked, requiresTag: firstTime.tag.checked };
-        if (!entry.label) throw new Error('Give the new destination a label, or untick "Add it to the address book".');
-        if ((entry.isExchange || entry.requiresTag) && tx.DestinationTag === undefined) {
-          throw new Error('This destination needs a destination tag, but the transaction has none. Nothing was signed; build a new envelope with the tag.');
-        }
-        next = { ...payload, accounts: payload.accounts.map((a) => (a.address === account.address ? { ...a, addressBook: [...a.addressBook, entry] } : a)) };
-        bookAdded = true;
-      }
-      finalCheck(tx, { multisigned: false, ownerReserveDrops: env.ownerReserveDrops, addressBook: ctx.addressBook, vaultAddresses: payload.accounts.map((a) => a.address) }, ackUi.given);
+      const next = withBookEntry(payload, account.address, entry);
+      const bookAdded = !!entry;
+      finalCheck(tx, { multisigned: false, ownerReserveDrops: env.ownerReserveDrops, addressBook: ctx.addressBook, vaultAddresses: payload.accounts.map((a) => a.address) }, ackUi.givenFor(0));
       key = keyFromSeed(account.regularKey.seed);
       const signed = signTx(tx, key);
       assertVerified([signed]);

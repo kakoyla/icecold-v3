@@ -9,7 +9,8 @@ import { onWipe } from '../session.js';
 import { generateKey, keyFromSeed, signTx, wipeKey } from '../../core/keys.js';
 import { storedKey } from '../../core/vault.js';
 import { fillRegularKey } from '../../core/envelope.js';
-import { errorBox, note, txCard, ackPanel, passphraseStep, saveVault, signedOutput, savedVaultGate, bigAddress } from '../widgets.js';
+import { errorBox, note, txCard, ackPanel, passphraseStep, saveVault, signedOutput, savedVaultGate, bigAddress, firstTimeDestination, withBookEntry } from '../widgets.js';
+import { describeTx } from '../../core/describe.js';
 import { show, showStep, setNetwork } from '../app.js';
 import {
   prepare, ctxFor, showRefused, blockedByPending, resolutionNotes, expiryNote, finalCheck, assertVerified, doneButton,
@@ -24,7 +25,10 @@ export function rotateFlow(env) {
   const acctAddr = v.txs[0].tx.Account;
   const account = payload.accounts.find((a) => a.address === acctAddr);
   const ctx = ctxFor(payload, acctAddr);
-  const ackUi = ackPanel(v.txs.flatMap((t) => t.acks));
+  const ackUi = ackPanel(v.txs.map((t) => t.acks));
+  // SPEC §4.4 step 3 applies to the Send in Send & Rotate too.
+  const pay = isSendPayment(v.txs[0].tx) ? v.txs[0].tx : null;
+  const firstTime = pay ? firstTimeDestination(pay, describeTx(pay, ctx).firstTimeDestination) : null;
   const msg = h('div');
   const isSend = env.purpose === 'send-rotate';
 
@@ -35,15 +39,17 @@ export function rotateFlow(env) {
 
   const step = passphraseStep(async (p, { progress }) => {
     try {
+      const entry = firstTime ? firstTime.entry() : null;
       if (!ackUi.ok()) throw new Error('Tick or type every item under "Check these before signing" first.');
       pass = p;
       // 1. New key, filled into the template.
       newKey = generateKey('ed25519');
       const txs = v.txs.map((t) => (t.template ? fillRegularKey(t.tx, newKey.address) : t.tx));
       const checkCtx = { multisigned: false, ownerReserveDrops: env.ownerReserveDrops, addressBook: ctx.addressBook, vaultAddresses: payload.accounts.map((a) => a.address) };
-      for (const tx of txs) finalCheck(tx, checkCtx, ackUi.given);
-      // 2. Vault with the new key pending.
-      const next = { ...payload, accounts: payload.accounts.map((a) => (a.address === acctAddr ? { ...a, pendingKey: storedKey(newKey) } : a)) };
+      txs.forEach((tx, i) => finalCheck(tx, checkCtx, ackUi.givenFor(i)));
+      // 2. Vault with the new key pending (and any new address-book entry).
+      const withKey = { ...payload, accounts: payload.accounts.map((a) => (a.address === acctAddr ? { ...a, pendingKey: storedKey(newKey) } : a)) };
+      const next = withBookEntry(withKey, acctAddr, entry);
       const saved = await saveVault(next, pass, progress);
       // 3. Gate, then 4-5.
       showStep(isSend ? 'Send & Rotate: check the saved vault' : 'Rotate: check the saved vault',
@@ -84,8 +90,11 @@ export function rotateFlow(env) {
     resolutionNotes(resolved),
     v.txs.map((t, i) => txCard(t.tx, { index: i, total: v.txs.length, ctx, template: t.template })),
     expiryNote(env),
+    firstTime ? firstTime.el : null,
     ackUi.el,
     note('One passphrase does it all: a new key is made here, the vault is saved with it as pending, you pick the saved file back in to prove it is there, and only then are the signed codes shown.'),
     step.el,
     msg);
 }
+
+const isSendPayment = (tx) => tx && tx.TransactionType === 'Payment';
