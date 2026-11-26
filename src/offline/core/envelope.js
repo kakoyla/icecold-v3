@@ -197,6 +197,7 @@ export function estimateExpiry(env, tx) {
 export function fillRegularKey(tx, newKeyAddress) {
   if (tx.TransactionType !== 'SetRegularKey' || 'RegularKey' in tx) throw new Error('not an empty SetRegularKey template');
   if (!isValidAddress(newKeyAddress)) throw new Error('bad RegularKey address');
+  if (newKeyAddress === tx.Account) throw new Error('RegularKey must differ from Account');
   return { ...tx, RegularKey: newKeyAddress };
 }
 
@@ -206,6 +207,7 @@ export function fillSignerList(tx, spareAddress) {
     throw new Error('not an empty SignerListSet template with SignerQuorum 1');
   }
   if (!isValidAddress(spareAddress)) throw new Error('bad spare address');
+  if (spareAddress === tx.Account) throw new Error('an account cannot list itself as a signer');
   return { ...tx, SignerEntries: [{ SignerEntry: { Account: spareAddress, SignerWeight: 1 } }] };
 }
 

@@ -132,12 +132,16 @@ export function checkTransaction(tx, ctx = {}) {
 
   if (type === 'SignerListSet') {
     const q = tx.SignerQuorum;
-    if (!isUInt32(q)) err('signer-quorum', 'SignerQuorum must be an integer', 'SignerQuorum');
+    if (ctx.template) {
+      // A template is filled offline with one spare at weight 1 (SPEC §2), so
+      // it must arrive as quorum 1 with no entries. Quorum 0 would turn
+      // "replace spare" into "delete signer list".
+      if (q !== 1) err('signer-quorum', 'signer-list template must have SignerQuorum 1', 'SignerQuorum');
+      if ('SignerEntries' in tx) err('template-filled', 'signer-list template must not carry SignerEntries; the offline side fills the spare', 'SignerEntries');
+    } else if (!isUInt32(q)) err('signer-quorum', 'SignerQuorum must be an integer', 'SignerQuorum');
     else if (q === 0) {
       if ('SignerEntries' in tx) err('signer-entries', 'deleting a signer list must not include SignerEntries', 'SignerEntries');
       ack('signerlist-delete', 'this DELETES the signer list (quorum 0)', { field: 'SignerQuorum', phrase: DELETE_SIGNER_LIST_PHRASE });
-    } else if (ctx.template) {
-      if ('SignerEntries' in tx) err('template-filled', 'signer-list template must not carry SignerEntries; the offline side fills the spare', 'SignerEntries');
     } else {
       checkSignerEntries(tx, err);
     }

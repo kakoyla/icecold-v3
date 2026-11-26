@@ -93,6 +93,13 @@ describe('purpose shapes', () => {
       SignerEntries: [{ SignerEntry: { Account: generateKey().address, SignerWeight: 1 } }] })]), 'purpose-shape'));
   test('sign: AccountDelete outside migration is refused (DECISIONS A9)', () => bad(
     W.envelope('sign', [W.base(W.personal.address, { TransactionType: 'AccountDelete', Destination: W.managed.address, Fee: '200000' })]), 'purpose-shape'));
+  test('replace-spare template with quorum 0 fails (would delete the list)', () => bad(W.envelope('replace-spare', [
+    W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 0 })]), 'signer-quorum'));
+  test('replace-spare template with quorum 2 fails', () => bad(W.envelope('replace-spare', [
+    W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 2 })]), 'signer-quorum'));
+  test('replace-spare template with entries already filled fails', () => bad(W.envelope('replace-spare', [
+    W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 1,
+      SignerEntries: [{ SignerEntry: { Account: generateKey().address, SignerWeight: 1 } }] })]), 'template-filled'));
   test('migration containing a Payment fails', () => bad(W.envelope('migration', [W.payment()]), 'purpose-shape'));
   // DECISIONS A10: the shared key stops signing once SetRegularKey validates.
   const sls = (seq, acct = W.personal.address) => W.base(acct, { TransactionType: 'SignerListSet', SignerQuorum: 1, Sequence: seq });
@@ -141,12 +148,14 @@ describe('expiry estimate and template filling', () => {
     const filled = fillRegularKey(tmpl, generateKey().address);
     assert.deepEqual(checkTransaction(filled, { template: false }).errors, []);
     assert.throws(() => fillRegularKey(filled, generateKey().address), /template/);
+    assert.throws(() => fillRegularKey(tmpl, tmpl.Account), /differ/);
   });
 
   test('filled SignerListSet has quorum 1 and one weight-1 entry', () => {
     const spare = generateKey().address;
     const filled = fillSignerList(W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 1 }), spare);
     assert.deepEqual(filled.SignerEntries, [{ SignerEntry: { Account: spare, SignerWeight: 1 } }]);
+    assert.throws(() => fillSignerList(W.base(W.personal.address, { TransactionType: 'SignerListSet', SignerQuorum: 1 }), W.personal.address), /itself/);
     assert.deepEqual(checkTransaction(filled, { template: false }).errors, []);
   });
 
