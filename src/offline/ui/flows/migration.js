@@ -39,7 +39,7 @@ function start(env, confirmedNetwork) {
   const { v, payload } = prepare(env, { extraAccounts: kept, confirmedNetwork });
   if (!v.ok) return showRefused(env, v, payload);
   const deleted = [...new Set(env.txs.filter((t) => t.TransactionType === 'AccountDelete').map((t) => t.Account))];
-  const ackUi = ackPanel(v.txs.flatMap((t) => t.acks));
+  const ackUi = ackPanel(v.txs.map((t) => t.acks));
 
   // Flow state; every secret is wiped on lock, Home or Done.
   let shared = null;
@@ -87,7 +87,7 @@ function start(env, confirmedNetwork) {
 
   // ---- step 2: each kept account ----
   function nextAccount(i) {
-    if (i >= kept.length) return vaultStep();
+    if (i >= kept.length) return kept.length ? vaultStep() : deleteOnlyStep();
     const acct = kept[i];
     const existing = session.vault && session.vault.payload.accounts.find((a) => a.address === acct);
     const label = textInput({ placeholder: `Label for ${acct}`, value: existing ? existing.label : '' });
@@ -121,7 +121,7 @@ function start(env, confirmedNetwork) {
       return tx;
     });
     const vaultAddresses = [...(session.vault ? session.vault.payload.accounts.map((a) => a.address) : []), ...kept];
-    for (const tx of filled) finalCheck(tx, { multisigned: false, ownerReserveDrops: env.ownerReserveDrops, vaultAddresses }, ackUi.given);
+    filled.forEach((tx, i) => finalCheck(tx, { multisigned: false, ownerReserveDrops: env.ownerReserveDrops, vaultAddresses }, ackUi.givenFor(i)));
   }
 
   function nextPayload(base) {
@@ -160,6 +160,20 @@ function start(env, confirmedNetwork) {
       okBox(`All ${kept.length} spare(s) checked.`),
       filledCards(),
       body, prog.el, msg);
+  }
+
+  // Only small accounts to close (SPEC §7.5 step 3): no new keys, so no vault
+  // to save and no gate; sign the AccountDeletes with the shared key.
+  function deleteOnlyStep() {
+    const msg = h('div');
+    showStep('Migration: close small accounts',
+      okBox(`Shared key confirmed: ${shared.address}`),
+      note('No new keys are made in this envelope, so no vault is saved.'),
+      filledCards(),
+      button('Sign with the shared key', () => {
+        try { fillAll(); finish(); } catch (e) { replace(msg, errorBox(String(e.message || e))); }
+      }, 'primary'),
+      msg);
   }
 
   function filledCards() {

@@ -51,7 +51,7 @@ function start(env, confirmedNetwork) {
   const { tx, acks } = v.txs[0];
   const acct = tx.Account;
   const signers = (env.ledger[acct].signerList?.entries || []).map((e) => e.account);
-  const ackUi = ackPanel(acks);
+  const ackUi = ackPanel([acks]);
   const msg = h('div');
   let spare = null;
   let newKey = null;
@@ -60,6 +60,12 @@ function start(env, confirmedNetwork) {
   onWipe(wipe);
 
   const afterSpare = (k) => {
+    // Acks are on this screen only, so check them before leaving it.
+    if (!ackUi.ok()) {
+      wipeKey(k);
+      replace(msg, errorBox('Tick or type every item under "Check these before signing" first.'));
+      return;
+    }
     spare = k;
     // Step 2: the spare must be in the ledger's signer list.
     if (!spareInSignerList(env, acct, spare.address)) {
@@ -117,7 +123,7 @@ function start(env, confirmedNetwork) {
       pass = p;
       const next = makePayload();
       const filled = fillRegularKey(tx, newKey.address);
-      finalCheck(filled, { multisigned: true, ownerReserveDrops: env.ownerReserveDrops, vaultAddresses: [] }, ackUi.given);
+      finalCheck(filled, { multisigned: true, ownerReserveDrops: env.ownerReserveDrops, vaultAddresses: [] }, ackUi.givenFor(0));
       const saved = await saveVault(next, pass, prog);
       showStep('Recovery: check the saved vault', savedVaultGate({
         filename: saved.filename, passphrase: () => pass, network: env.network,
