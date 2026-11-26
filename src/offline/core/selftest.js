@@ -45,11 +45,12 @@ export function runSelfTest(vectors = V) {
     });
   }
 
-  check('multisign signature', () => {
-    const { tx_blob, hash } = _multisignUnchecked(vectors.MULTISIGN_TX.tx, keyFromSeed(vectors.MULTISIGN_TX.seed));
-    return tx_blob === vectors.MULTISIGN_TX.blob && hash === vectors.MULTISIGN_TX.hash &&
-      verifySignedBlob(tx_blob).valid;
-  });
+  for (const [label, vec] of [['secp256k1', vectors.MULTISIGN_TX], ['ed25519', vectors.ED25519_MULTISIGN_TX]]) {
+    check(`${label}: multisign signature`, () => {
+      const { tx_blob, hash } = _multisignUnchecked(vec.tx, keyFromSeed(vec.seed));
+      return tx_blob === vec.blob && hash === vec.hash && verifySignedBlob(tx_blob).valid;
+    });
+  }
 
   check('binary codec round-trip', () => {
     const tx = vectors.ED25519_TX.tx;
