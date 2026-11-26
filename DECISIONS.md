@@ -267,6 +267,95 @@ labels, so the vault must be open before it is shown. So:
 - Send & Rotate and Rotate use that one step-5 passphrase for everything:
   saving the vault, the A2 gate, and signing (§4.5: "one passphrase").
 
+## A20: Online Builder form and placement (§5.1). Approved by owner.
+
+- **One codebase:** a single self-contained page, `dist/icecold-v3-online.html`,
+  plain JavaScript like the offline signer, built by the same command.
+- **Explorer tab:** the explorer's "Cold Storage" tab shows that exact file in
+  an `<iframe allow="camera">`, pinned by its SHA-256. This keeps the
+  builder's CSP and styles separate from the explorer. It's added on a new
+  explorer branch at the end of Phase 3.
+- **GitHub Pages:** a manual-only workflow publishes both HTML files and their
+  `.sha256` files. It is not switched on until the owner says so.
+- **Library:** xrpl.js 5.3.0, the same pinned version the tests use, for the
+  WebSocket connection to the ledger. The online page also disables
+  `Math.random` after it loads.
+
+## A21: servers, fees, expiry and reserves (§5.2, §5.3). Decided by Claude, reviewed by Gemini.
+
+- **Servers:** a fixed list per network, tried in order until one connects.
+  - Mainnet: `wss://xrplcluster.com`, `wss://s1.ripple.com`, `wss://s2.ripple.com`
+  - Testnet: `wss://s.altnet.rippletest.net:51233`, `wss://testnet.xrpl-labs.com`
+  - The page's CSP allows connections only to these addresses.
+- **Fee:** the `fee` command's `open_ledger_fee`, in drops. A multi-signed
+  transaction pays it × 2 (one signer, §4.6). AccountDelete pays the owner
+  reserve.
+  - If the network fee is over the offline cap, the builder refuses and says
+    to wait. It never sets a fee below what the network needs.
+- **Expiry:** `LastLedgerSequence` = the validated ledger + 900 (about 1 hour),
+  or + 2,700 for Migration (about 3 hours, A12). `builtAt` is that validated
+  ledger's index and close time.
+- **Reserves:** read from `server_state` in drops, so no decimals are rounded.
+  An account's reserve = base reserve + `OwnerCount` × owner reserve. An
+  account with a signer list holds one object, so its reserve is currently
+  1.2 XRP.
+- **Estate amount:** balance − account reserve − fee, refused if that is zero
+  or less. The destination tag is required by default (§6).
+
+## A22: checking signed transactions before submitting (§5.5). Decided by Claude, reviewed by Gemini.
+
+A signed hash can't be known before offline signing, and templates are filled
+in offline. So each scanned blob is checked like this:
+
+- `verifySignedBlob` must pass: canonical encoding, every signature valid.
+- Every field the builder set must be unchanged.
+- The only allowed additions are the signature fields (`SigningPubKey`,
+  `TxnSignature`, `Signers`) and, for a template, the one field filled in
+  offline: `RegularKey`, or `SignerEntries` with exactly one entry of weight 1.
+- Any other difference is refused.
+- The filled-in key or spare address is kept for the post-checks.
+- After submitting, the validated transaction must have the hash computed
+  from the blob.
+- **Post-checks:**
+  - After a rotation or recovery, the ledger's `RegularKey` equals the new key.
+  - After Replace Spare, the signer list holds the new spare.
+  - After migration, no kept account still has the shared key, every signer
+    list holds its spare, and every deleted account is gone.
+
+## A23: watch-only list and the secret guard (§5.2, O-4). Approved by owner.
+
+- **Watch-only list (O-4 resolved):** labels and public addresses only, in
+  `localStorage`, one list per network so mainnet and testnet never mix.
+  A **Clear** button empties it. Nothing else is stored.
+- **Secret guard:** every text input checks what is typed or pasted. If it is
+  a valid seed, the field is cleared at once, and a warning says the key
+  should be treated as compromised because it was typed on an online machine.
+- The built envelope is kept in page memory only, so it can be compared when
+  the signed QR codes come back.
+
+## A24: what blocks deleting a small account (§5.4). Decided by Claude, reviewed by Gemini.
+
+The migration wizard lists every object from `account_objects`, all types, and
+blocks deletion until all of these hold:
+
+- `OwnerCount` is 0 apart from objects the ledger removes itself (offers,
+  tickets, signer list, deposit preauthorisations). Escrows, payment channels,
+  checks, trust lines and NFT pages must be cleared by hand; the wizard says
+  which ones.
+- `Sequence` + 256 ≤ the current ledger index.
+- The balance is more than the AccountDelete fee (the owner reserve).
+- The destination is a kept account.
+
+## A25: printing (§4.7, §6). Decided by Claude, reviewed by Gemini.
+
+- **Blank Spare Key Card:** the account label, a line for the spare's
+  address, and 31 boxes grouped 4-4-4-4-4-4-4-3, the length of an Ed25519
+  seed. Each box has an upper/lower mark to circle.
+- **Estate letter and helper appendix:** the text §6 lists, the GitHub Pages
+  URLs, and the offline HTML's SHA-256, which is built into the online page at
+  build time. Names and the spare's location are typed at print time, or left
+  blank to write by hand, and are never stored.
+
 ## Tooling. Decided by Claude.
 
 - **Build:** esbuild directly, not Vite. One small dependency, deterministic
