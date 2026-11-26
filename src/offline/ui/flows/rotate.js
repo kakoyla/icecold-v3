@@ -5,7 +5,7 @@
 //   4. sign every transaction with the current key
 //   5. show the signed QR codes and the new key's address
 import { h, replace } from '../dom.js';
-import { onWipe } from '../session.js';
+import { session, onWipe } from '../session.js';
 import { generateKey, keyFromSeed, signTx, wipeKey } from '../../core/keys.js';
 import { storedKey } from '../../core/vault.js';
 import { fillRegularKey } from '../../core/envelope.js';
@@ -76,7 +76,7 @@ export function rotateFlow(env) {
       wipe();
       show(isSend ? 'Signed: send and rotate' : 'Signed: rotate',
         note(isSend ? 'Submit them in order. The online side submits the key change only if the payment is validated.' : 'Submit this on the online device.'),
-        signedOutput(signed, ctxFor(payload, acctAddr)),
+        signedOutput(signed, ctxFor(session.vault ? session.vault.payload : payload, acctAddr)),
         bigAddress(addr, 'New regular key (pending until the ledger shows it):'),
         doneButton());
     } catch (e) {

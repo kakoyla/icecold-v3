@@ -187,8 +187,13 @@ for (const name of ENGINES) {
       await passphraseAndClick(page, 'Make new key, save vault, sign both');
       await page.waitForSelector('text=Confirm the new destination first');
       await page.locator('.first-time label:has-text("character by character") input').check();
-      await captureDownload(page, () => passphraseAndClick(page, 'Make new key, save vault, sign both'));
+      await page.locator('.first-time label:has-text("Add it to the address book") input').check();
+      await page.locator('.first-time input[placeholder^="Label"]').fill('Cold friend');
+      const dl = await captureDownload(page, () => passphraseAndClick(page, 'Make new key, save vault, sign both'));
       await page.waitForSelector('h3:has-text("Check the saved vault")');
+      await page.locator('.gate input[type=file]').setInputFiles(dl.path);
+      await signedBlobs(page);
+      assert.match(await page.textContent('.signed-item .summary'), /to Cold friend/, 'the new label shows on the signed screen');
     });
 
     test('the same warning on two transactions needs two acknowledgements', async () => {
