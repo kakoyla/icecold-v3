@@ -292,3 +292,90 @@ describe('estate letter and spare card (A25)', () => {
     assert.deepEqual([...SPARE_CARD_GROUPS], [4, 4, 4, 4, 4, 4, 4, 3]);
   });
 });
+
+describe('Phase 3 review fixes', () => {
+  test('a dropped transaction (telCAN_NOT_QUEUE_FEE) fails at once', async () => {
+    const r = await submitAndWait(async (req) => (req.command === 'submit' ? { engine_result: 'telCAN_NOT_QUEUE_FEE' } : {}), 'ABCD', { lastLedgerSequence: 99, ...noSleep });
+    assert.equal(r.code, 'telCAN_NOT_QUEUE_FEE');
+    assert.equal(r.validated, false);
+  });
+  test('a transaction validated in the last ledger is not reported as expired', async () => {
+    let lookups = 0;
+    const r = await submitAndWait(async (req) => {
+      if (req.command === 'submit') return { engine_result: 'terQUEUED' };
+      if (req.command === 'server_state') return { state: { validated_ledger: { seq: 100 } } };
+      lookups++;
+      return lookups === 1 ? { validated: false } : { validated: true, meta: { TransactionResult: 'tesSUCCESS' }, ledger_index: 99 };
+    }, 'ABCD', { lastLedgerSequence: 99, ...noSleep });
+    assert.equal(r.code, 'tesSUCCESS');
+  });
+  test('send and send-rotate refuse an amount that would dip into the reserve', async () => {
+    const { W, rpc } = world();
+    // Balance 100 XRP, reserve 1.2 XRP: 98.8 XRP minus fees is the most.
+    await rejectsCode(build(rpc, 'testnet', 'sign', { account: W.personal.address, destination: W.friend.address, amountXrp: '98.8' }), 'insufficient');
+    await build(rpc, 'testnet', 'sign', { account: W.personal.address, destination: W.friend.address, amountXrp: '98.79' });
+    await rejectsCode(build(rpc, 'testnet', 'send-rotate', { account: W.personal.address, destination: W.friend.address, amountXrp: '98.799990' }), 'insufficient');
+  });
+  test('the expiry window is configurable (SPEC 5.3)', async () => {
+    const { W, rpc } = world();
+    const { env } = await build(rpc, 'testnet', 'rotate', { account: W.personal.address, windowMinutes: 30 });
+    assert.equal(env.txs[0].LastLedgerSequence, 5000 + 450);
+    await rejectsCode(build(rpc, 'testnet', 'rotate', { account: W.personal.address, windowMinutes: 5 }), 'window');
+  });
+  test('migration: a small account without a regular key is refused', async () => {
+    const { W, L, rpc } = world();
+    const small = generateKey();
+    L.addAccount(small.address, {});
+    await rejectsCode(build(rpc, 'testnet', 'migration', { kept: [], small: [small.address], leftoversTo: W.personal.address, leftoversKnown: [W.personal.address] }), 'no-regular-key');
+  });
+  test('migration: leftovers must exist and must not require a tag', async () => {
+    const { W, L, rpc } = world();
+    const shared = W.reg.personal.address;
+    const small = generateKey();
+    L.addAccount(small.address, { regularKey: shared });
+    const ghost = generateKey().address;
+    await rejectsCode(build(rpc, 'testnet', 'migration', { kept: [], small: [small.address], leftoversTo: ghost, leftoversKnown: [ghost] }), 'leftovers');
+    await rejectsCode(build(rpc, 'testnet', 'migration', { kept: [], small: [small.address], leftoversTo: W.exchange.address, leftoversKnown: [W.exchange.address] }), 'leftovers');
+  });
+  test('migration: blockers are listed for every small account, not just the first', async () => {
+    const { W, L, rpc } = world();
+    const shared = W.reg.personal.address;
+    const a = generateKey();
+    const b = generateKey();
+    L.addAccount(a.address, { regularKey: shared, objects: [{ LedgerEntryType: 'Escrow' }] });
+    L.addAccount(b.address, { regularKey: shared, objects: [{ LedgerEntryType: 'Check' }] });
+    await assert.rejects(build(rpc, 'testnet', 'migration', { kept: [], small: [a.address, b.address], leftoversTo: W.personal.address, leftoversKnown: [W.personal.address] }),
+      (e) => e.code === 'delete-blocked' && e.message.includes(a.address) && e.message.includes(b.address));
+  });
+  test('the secret guard finds a seed inside quotes or JSON', () => {
+    const k = generateKey();
+    assert.equal(containsSeed(`{"secret":"${k.seed}"}`), true);
+    assert.equal(containsSeed(`'${k.seed}',`), true);
+  });
+  test('a filled signer entry with an extra field is refused', async () => {
+    const { W, rpc } = world();
+    const { env } = await build(rpc, 'testnet', 'replace-spare', { account: W.personal.address });
+    const spare = generateKey().address;
+    const odd = { ...env.txs[0], SignerEntries: [{ SignerEntry: { Account: spare, SignerWeight: 1, WalletLocator: '00'.repeat(32) } }] };
+    assert.match(checkSigned(env.txs[0], signTx(odd, W.reg.personal).tx_blob).errors.join(), /one spare/);
+  });
+});
+
+describe('connection: only the latest network switch wins (Phase 3 review)', () => {
+  test('a slow TESTNET connect finishing after a MAINNET switch is discarded', async () => {
+    globalThis.__TEST_SERVERS__ = null;
+    const net = await import('../../src/online/ui/net.js');
+    const closed = [];
+    const fake = (url, ms) => ({ connect: () => new Promise((r) => setTimeout(r, ms)), disconnect: async () => { closed.push(url); }, request: async () => ({ result: { url } }) });
+    const list = { testnet: ['wss://slow-testnet'], mainnet: ['wss://fast-mainnet'] };
+    const slow = net.connect('testnet', () => {}, { list, makeClient: (u) => fake(u, 50) });
+    await new Promise((r) => setTimeout(r, 10)); // testnet is now mid-connect
+    const fast = net.connect('mainnet', () => {}, { list, makeClient: (u) => fake(u, 5) });
+    await assert.rejects(slow, net.Superseded);
+    assert.deepEqual(await fast, { network: 'mainnet', url: 'wss://fast-mainnet' });
+    assert.deepEqual(net.connection(), { network: 'mainnet', url: 'wss://fast-mainnet' });
+    assert.ok(closed.includes('wss://slow-testnet'), 'the late testnet connection was closed');
+    assert.throws(() => net.requireNetwork('testnet'), /MAINNET/);
+    await net.disconnect();
+  });
+});

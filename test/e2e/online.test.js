@@ -143,7 +143,7 @@ for (const name of ENGINES) {
       await online.waitForSelector('.scan-status:has-text("Scanning")');
       await showQrs(online, blobs);
       await clickButton(online, 'Submit to the ledger');
-      await online.waitForSelector('.ok-box:has-text("All post-checks passed"), .error-box:has-text("Post-checks failed")', { timeout: 60000 });
+      await online.waitForSelector('.ok-box:has-text("All post-checks passed"), .error-box:has-text("Post-checks failed"), .error-box:has-text("Not everything went through")', { timeout: 60000 });
       return online.textContent('#screen');
     }
 
@@ -211,6 +211,51 @@ for (const name of ENGINES) {
       const text = await onlineSubmit([blob]);
       assert.match(text, /All post-checks passed/);
       assert.equal(ledger.accounts.get(W.personal.address).RegularKey, xrpl.decode(blob).RegularKey);
+    });
+
+    test('a failed transaction is never reported as all-green', async () => {
+      const W = makeWorld('testnet');
+      ledger.addAccount(W.personal.address, { regularKey: W.reg.personal.address, spare: W.spare.personal.address });
+      await goHome();
+      await clickButton(online, 'Build an envelope');
+      await online.locator('button', { hasText: 'Rotate key' }).click();
+      await online.fill('input[placeholder="Account (r…)"]', W.personal.address);
+      await clickButton(online, 'Build envelope');
+      await online.waitForSelector('h2:has-text("Envelope ready")');
+      await offlineScan(await readEnvelopeParts(online));
+      await openVault(offline, await vaultFile(W.vault));
+      const dl = await captureDownload(offline, () => passphraseAndClick(offline, 'Make new key, save vault, sign'));
+      await offline.locator('.gate input[type=file]').setInputFiles(dl.path);
+      const blobs = await signedBlobs(offline);
+      ledger.results.push('tecNO_PERMISSION');
+      const text = await onlineSubmit(blobs);
+      assert.match(text, /Not everything went through/);
+      assert.doesNotMatch(text, /All post-checks passed/);
+    });
+
+    test('leaving Submit turns the camera off', async () => {
+      const W = makeWorld('testnet');
+      ledger.addAccount(W.personal.address, { regularKey: W.reg.personal.address, spare: W.spare.personal.address });
+      await goHome();
+      await clickButton(online, 'Build an envelope');
+      await online.locator('button', { hasText: 'Rotate key' }).click();
+      await online.fill('input[placeholder="Account (r…)"]', W.personal.address);
+      await clickButton(online, 'Build envelope');
+      await clickButton(online, 'Next: scan the signed QR codes');
+      await online.waitForSelector('.scan-status:has-text("Scanning")');
+      assert.equal(await online.evaluate(() => window.__testCam.liveTracks()), 1);
+      await goHome();
+      assert.equal(await online.evaluate(() => window.__testCam.liveTracks()), 0);
+    });
+
+    test('the estate letter refuses an invalid address', async () => {
+      await goHome();
+      await clickButton(online, 'Print');
+      await clickButton(online, 'Estate letter');
+      await online.fill('input[placeholder="Account address (r…)"]', 'rNotARealAddress');
+      await clickButton(online, 'Make letter');
+      await online.waitForSelector('.error-box:has-text("not a valid XRPL address")');
+      assert.equal(await online.locator('.print-area').count(), 0);
     });
 
     test('a signed code that differs from what was built is refused', async () => {

@@ -295,6 +295,16 @@ labels, so the vault must be open before it is shown. So:
 - **Expiry:** `LastLedgerSequence` = the validated ledger + 900 (about 1 hour),
   or + 2,700 for Migration (about 3 hours, A12). `builtAt` is that validated
   ledger's index and close time.
+  - The window is configurable (§5.3): the Build screen takes 10–360
+    minutes, at 4 s per ledger.
+- **Destinations:** a destination that doesn't exist on the ledger is refused
+  by design, since sending to it could fail or need a larger first payment.
+  A destination with `lsfRequireDestTag` needs a tag.
+- **Spendable balance:** Send and Send & Rotate refuse an amount that would
+  dip into the reserve once all fees are paid (two fees for Send & Rotate).
+- **Connection:** only the latest network switch wins. A slower earlier
+  connection is closed and discarded, and every build and submit checks that
+  the live connection is on the selected network. (Phase 3 review.)
 - **Reserves:** read from `server_state` in drops, so no decimals are rounded.
   An account's reserve = base reserve + `OwnerCount` × owner reserve. An
   account with a signer list holds one object, so its reserve is currently
@@ -316,6 +326,13 @@ in offline. So each scanned blob is checked like this:
 - The filled-in key or spare address is kept for the post-checks.
 - After submitting, the validated transaction must have the hash computed
   from the blob.
+- Any `tem`, `tef` or `tel` result fails at once; `telCAN_NOT_QUEUE*` means the
+  network dropped it. After `LastLedgerSequence` passes, the transaction is
+  looked up once more before it's called expired.
+- **The result screen is green only when every transaction is `tesSUCCESS`
+  and every post-check passes.** Otherwise it lists each transaction that
+  failed or was held back, then says whether the ones that succeeded passed
+  their checks. (Phase 3 review.)
 - **Submission order:**
   - Send & Rotate submits the key change only if the payment used up its
     sequence (`tesSUCCESS` or `tec`, §5.5).
@@ -344,6 +361,9 @@ in offline. So each scanned blob is checked like this:
 The migration wizard lists every object from `account_objects`, all types, and
 blocks deletion until all of these hold:
 
+- The account has a regular key, the shared one, to sign the AccountDelete.
+- The leftovers account exists, is kept, and doesn't require a tag.
+- Every small account is checked, and all their blockers are listed together.
 - `OwnerCount` is 0 apart from objects the ledger removes itself (offers,
   tickets, signer list, deposit preauthorisations). Escrows, payment channels,
   checks, trust lines and NFT pages must be cleared by hand; the wizard says
