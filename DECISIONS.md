@@ -40,6 +40,9 @@ pending key is there before the signed pair is shown.
 - **Estate network check:** Estate has no vault to compare against. The signer
   shows the envelope's network, and the user must confirm it explicitly before
   signing.
+- The same on-screen confirmation applies to Recovery and Migration when no
+  vault is open. The user must pick the right network; picking the other one
+  stops the flow.
 
 ## A4: AccountDelete fee cap needs the owner reserve (§4.8). Delegated to Claude; ceiling approved by owner.
 
@@ -244,6 +247,20 @@ checksum:
   quiet zone. The library's `<img>` (a `data:` URL) and `<table>` (inline
   `style` attributes) outputs are not used, so the Phase 1 CSP stays unchanged.
 
+## A19: when the passphrase is asked for during signing (§4.4). Decided by Claude.
+
+The summary card (step 3) names accounts and destinations by their vault
+labels, so the vault must be open before it is shown. So:
+
+- The vault is opened with its passphrase first.
+- After the summary and acknowledgements, step 5 asks for the passphrase
+  again. It is checked by decrypting the vault file again before anything is
+  signed. This keeps the spec's order, and the second entry is a real check.
+- After every signing, **Done** wipes the keys and inputs and locks the vault
+  (§4.2: "secrets are wiped ... after each signing").
+- Send & Rotate and Rotate use that one step-5 passphrase for everything:
+  saving the vault, the A2 gate, and signing (§4.5: "one passphrase").
+
 ## Tooling. Decided by Claude.
 
 - **Build:** esbuild directly, not Vite. One small dependency, deterministic
@@ -251,7 +268,11 @@ checksum:
 - **Tests:** Node's built-in `node:test`, not vitest. vitest 5 needs Node 22,
   and the built-in runner adds no dependency.
 - **QR libraries:** see A18.
-- **Seed repair and the full signing screens** are Phase 2 (UI).
+- **UI:** plain JavaScript with no framework. Every value is shown with
+  `textContent`; there is no `innerHTML` and no inline style. A test checks
+  that markup inside an envelope stays text.
+- **End-to-end tests** drive every screen in headless Chromium and Firefox,
+  using a fake camera that the tests inject. The built file has no test hook.
 
 ## Known limitations
 

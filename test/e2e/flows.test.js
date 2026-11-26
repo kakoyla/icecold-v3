@@ -137,6 +137,19 @@ for (const name of ENGINES) {
       assert.equal(xrplVerifies((await signedBlobs(page))[0]), true);
     });
 
+    test('markup inside an envelope is shown as text, never as HTML', async () => {
+      await fresh();
+      const W = makeWorld('testnet');
+      const evil = '<b id="pwn">x</b><img src=x>';
+      const hex = Buffer.from(evil).toString('hex').toUpperCase();
+      await scanEnvelope(page, W.envelope('sign', [W.base(W.personal.address, { TransactionType: 'AccountSet', Domain: hex, Memos: evil })]));
+      await openVault(page, await vaultFile(W.vault));
+      await page.waitForSelector('h2:has-text("Review and sign")');
+      assert.equal(await page.locator('#pwn').count(), 0);
+      assert.equal(await page.locator('#screen img').count(), 0);
+      assert.match(await page.textContent('.summary'), /domain: <b id="pwn">/);
+    });
+
     test('send & rotate: new key saved as pending, gate refuses the old file, then both are signed', async () => {
       await fresh();
       const W = makeWorld('testnet');
