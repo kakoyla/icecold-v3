@@ -25,8 +25,13 @@ wording was folded into SPEC.md on 2026-11-25; entries say where.
   value inside the §4.2 range of 2–5 s. Owner approved. The probe ran scrypt
   with `asyncTick: 50` and no progress callback, so the vault now passes
   `asyncTick: 50` too, and the progress bar updates only when its whole
-  percentage changes (Gemini review). The real unlock time is to be measured
-  on the machine with a testnet vault before Phase 4.
+  percentage changes (Gemini review).
+- **Real unlock on the machine (2026-11-27):** with the rebuilt signer, an
+  empty testnet vault took 5.3 s to create and 5.7 s to unlock (hand
+  stopwatch, so it includes reaction time). That is just above the 2–5 s
+  target, and N = 2^15 would take about 3 s. The owner chose to keep N = 2^16:
+  the time does not matter to them, since signing is rare, and it doubles the
+  cost of guessing the passphrase.
 - **Machine clock:** the clock reads years in the past and the firmware reports
   a clock error, most likely a dead CMOS battery. Signing does not read the
   clock: the expiry estimate (A6) uses the envelope's `builtAt.closeTime`,
