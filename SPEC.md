@@ -322,7 +322,7 @@ Tokens and trust lines, the DEX, escrow, NFTs, AMM, checks, building transaction
 ## 9. Open items
 | ID | Item | Owner |
 |---|---|---|
-| O-1 | Exact browser and version on the signing machine. **Interim:** portable Firefox ESR 140.17.0, 32-bit Linux; closes when the probe passes on the machine (DECISIONS O-1). | Owner |
+| O-1 | ~~Exact browser and version on the signing machine~~ **Resolved 2026-11-27:** portable Firefox ESR 140.17.0, 32-bit Linux. The probe and the signer self-test passed on the machine (DECISIONS O-1). | — |
 | O-2 | Addresses of the small accounts (the wizard checks for blockers) | Owner |
 | O-3 | ~~Printing path for Spare Key Cards~~ **Resolved 2026-11-25: handwritten.** No printer that stays permanently offline is available. | — |
 | O-4 | Confirm watch-only label storage on the online side | Owner |

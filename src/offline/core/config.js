@@ -24,7 +24,8 @@ export const MAX_OWNER_RESERVE_DROPS = 2_000_000n;
 
 // SPEC §4.2 vault KDF. N is stored in each vault file, so the default can be
 // retuned after measuring on the signing machine without breaking old vaults.
-export const VAULT_KDF_DEFAULT = Object.freeze({ N: 2 ** 17, r: 8, p: 1 });
+// N = 2^16 measured 4.9 s on the signing machine (DECISIONS O-1, 2026-11-27).
+export const VAULT_KDF_DEFAULT = Object.freeze({ N: 2 ** 16, r: 8, p: 1 });
 // Bounds accepted when opening a vault (guards against absurd header values).
 export const VAULT_KDF_MIN_LOG2N = 14;
 export const VAULT_KDF_MAX_LOG2N = 20;

@@ -45,3 +45,17 @@ test('the Online Builder build is reproducible and self-contained too', async ()
   const markup = readFileSync(p, 'utf8').replace(/<script>[\s\S]*<\/script>/, '<script></script>');
   assert.doesNotMatch(markup, /<script[^>]+src=|<link[^>]+href=|<img[^>]+src=/i);
 });
+
+test('the published Online Builder and index page carry the published Offline Signer hash', async () => {
+  const { ONLINE_OUT_FILE } = await import('../../build.config.js');
+  execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: 'pipe' });
+  const onlinePath = resolve(root, ONLINE_OUT_FILE);
+  const hashOf = (f) => readFileSync(`${f}.sha256`, 'utf8').split(' ')[0];
+  const offlineHash = hashOf(out);
+  const onlineHash = hashOf(onlinePath);
+  assert.equal(createHash('sha256').update(readFileSync(out)).digest('hex'), offlineHash);
+  assert.ok(readFileSync(onlinePath, 'utf8').includes(offlineHash), 'estate letters quote the signer hash');
+  const index = readFileSync(resolve(root, 'dist/index.html'), 'utf8');
+  assert.ok(index.includes(offlineHash), 'index page lists the signer hash');
+  assert.ok(index.includes(onlineHash), 'index page lists the builder hash');
+});

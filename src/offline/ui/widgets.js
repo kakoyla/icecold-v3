@@ -20,10 +20,13 @@ export const okBox = (text) => h('div', { class: 'ok-box', text });
 export function progress(label) {
   const bar = h('progress', { max: 100, value: 0 });
   const el = h('div', { class: 'progress hidden' }, h('span', { text: label }), bar);
+  // scrypt reports progress about 10,000 times per run; touch the page only
+  // when the whole percentage changes.
+  let last = -1;
   return {
     el,
-    start() { el.classList.remove('hidden'); bar.value = 0; },
-    update(p) { bar.value = Math.round(p * 100); },
+    start() { el.classList.remove('hidden'); last = 0; bar.value = 0; },
+    update(p) { const v = Math.round(p * 100); if (v !== last) { last = v; bar.value = v; } },
     done() { el.classList.add('hidden'); },
   };
 }

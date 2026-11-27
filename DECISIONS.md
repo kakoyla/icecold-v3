@@ -4,18 +4,39 @@ SPEC.md is authoritative. This file records how ambiguities in it were resolved
 and choices the spec leaves open. Nothing here changes the spec. Approved
 wording was folded into SPEC.md on 2026-11-25; entries say where.
 
-## Open item O-1: signing-machine browser (interim)
+## Open item O-1: signing-machine browser (closed 2026-11-27)
 
 - The signing machine's stock browser is Firefox 58, which has no `BigInt`.
   The §4.1 libraries (`@noble/*`, `ripple-keypairs` 3.x) require it, so they
   cannot run there. This also explains the v2 "checksum failed" error.
 - **Plan:** run a portable Firefox ESR 140.17.0 (32-bit Linux) next to the
   stock browser, brought in on the read-only USB stick and hash-checked as §1
-  requires. It is verified against Mozilla's signed SHA256SUMS but not yet
-  installed on the machine.
+  requires. It was verified against Mozilla's signed SHA256SUMS before it
+  was copied to the machine.
 - **Build target:** `firefox140`, set in one place: `build.config.js`.
-- **Still open:** O-1 closes after the probe page passes on the machine itself.
-  The interim plan is noted in SPEC.md §9.
+- **Closed 2026-11-27:** on the machine itself, Firefox ESR 140.17.0 (32-bit,
+  hash-checked from a new read-only stick) passed every probe check, and the
+  Offline Signer showed "Self-test passed". Its user agent says
+  `Linux x86_64` although the build is 32-bit: since Firefox 127, 32-bit x86
+  Linux builds report x86_64 on purpose, to reduce fingerprinting (Mozilla
+  bug 1873273). The build is identified by its hash, not that string.
+- **scrypt timings on the machine (r=8, p=1):** N=2^14 1.2 s, 2^15 2.9 s,
+  2^16 4.9 s, 2^17 9.7 s. The vault default is now **N = 2^16**, the strongest
+  value inside the §4.2 range of 2–5 s. Owner approved. The probe ran scrypt
+  with `asyncTick: 50` and no progress callback, so the vault now passes
+  `asyncTick: 50` too, and the progress bar updates only when its whole
+  percentage changes (Gemini review). The real unlock time is to be measured
+  on the machine with a testnet vault before Phase 4.
+- **Machine clock:** the clock reads years in the past and the firmware reports
+  a clock error, most likely a dead CMOS battery. Signing does not read the
+  clock: the expiry estimate (A6) uses the envelope's `builtAt.closeTime`,
+  and the idle lock and QR de-duplication measure only elapsed time. The
+  clock sets only a new vault file's `createdAt` and the timestamp in its file
+  name. With a dead battery the clock can reset at each cold boot, so a newer
+  vault can carry an earlier timestamp than an older one, by name and by file
+  date. **Before the Phase 4 rehearsal** the owner replaces the battery and
+  sets the clock, or else sets the date by hand (`sudo date -s`) at each
+  boot. Until then, file names and dates do not show which vault is newest.
 
 ## A1: the file cannot show its own SHA-256 (§4.3). Approved by owner.
 
@@ -412,7 +433,6 @@ blocks deletion until all of these hold:
 - **Secret wiping (§4.2):** JavaScript cannot guarantee memory is erased. The
   core zeroes byte arrays it owns and drops references, and the UI will clear
   inputs. Seed strings may remain in memory until garbage collected.
-- **scrypt cost:** N = 2^17 needs about 128 MiB, and the signing machine has limited
-  RAM. The default stays N = 2^17 until the probe measures real
-  timings. N is stored in each vault file, so changing the default later does
+- **scrypt cost:** N = 2^16 needs about 64 MiB, which the signing machine handles.
+  The default was set from timings measured on it (O-1). N is stored in each vault file, so changing the default later does
   not break existing vaults.

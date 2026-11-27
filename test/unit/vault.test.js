@@ -167,12 +167,19 @@ describe('vault', () => {
     await assert.rejects(Vt.encryptVault(samplePayload(), PASS, { kdf: { N: 2 ** 10 } }), (e) => e.code === 'kdf');
   });
 
-  test('default KDF is scrypt N=2^17, r=8, p=1 and round-trips', async () => {
+  test('default KDF is scrypt N=2^16, r=8, p=1 and round-trips', async () => {
     const { text } = await Vt.encryptVault(samplePayload(), PASS);
     const f = JSON.parse(text);
-    assert.deepEqual(f.kdf, { name: 'scrypt', N: 2 ** 17, r: 8, p: 1, dkLen: 32 });
+    assert.deepEqual(f.kdf, { name: 'scrypt', N: 2 ** 16, r: 8, p: 1, dkLen: 32 });
     assert.equal(f.cipher.name, 'aes-256-gcm');
     assert.equal((await Vt.decryptVault(text, PASS, 'testnet')).accounts.length, 1);
+  });
+
+  test('a vault made at the previous default, N=2^17, still opens (N is read from its header)', async () => {
+    const p = samplePayload();
+    const { text } = await Vt.encryptVault(p, PASS, { kdf: { N: 2 ** 17 } });
+    assert.equal(JSON.parse(text).kdf.N, 2 ** 17);
+    assert.deepEqual(await Vt.decryptVault(text, PASS, 'testnet'), p);
   });
 
   test('confirmPendingSaved (SPEC §4.5 gate) finds the pending key only when present', async () => {

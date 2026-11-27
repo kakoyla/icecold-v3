@@ -129,7 +129,11 @@ function normalizePass(pass) {
 async function deriveKey(pass, salt, kdf, onProgress) {
   const pb = enc.encode(normalizePass(pass));
   try {
-    return await scryptAsync(pb, salt, { N: kdf.N, r: kdf.r, p: kdf.p, dkLen: kdf.dkLen, onProgress });
+    // asyncTick only sets how often scrypt yields to the browser; it does not
+    // change the key. 50 ms matches the probe that measured the timings
+    // (DECISIONS O-1). The library default of 10 ms yields five times as often,
+    // and on Firefox 140 each yield is a clamped setTimeout.
+    return await scryptAsync(pb, salt, { N: kdf.N, r: kdf.r, p: kdf.p, dkLen: kdf.dkLen, asyncTick: 50, onProgress });
   } finally {
     wipe(pb);
   }
